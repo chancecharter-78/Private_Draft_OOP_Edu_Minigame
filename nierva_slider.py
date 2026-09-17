@@ -1,12 +1,17 @@
 import streamlit as st
 import random
 import nierva_timer
+from nierva_save_data import GameSaveData
 
 MAX_SLIDER_BARS = 5
 
+def get_save_data() -> GameSaveData:
+    if "save_data" not in st.session_state:
+        st.session_state.save_data = GameSaveData()
+    return st.session_state.save_data
+
 def init_slider():
     st.session_state.slider_level = 1
-    st.session_state.slider_score = 0
     st.session_state.slider_history = []
     st.session_state.slider_position = 50
     st.session_state.slider_direction = 1
@@ -30,16 +35,17 @@ def step_marker():
         st.session_state.slider_direction = 1
 
 def lock_slider():
+    save_data = get_save_data()
     g_start, g_end = st.session_state.green_range
     pos = st.session_state.slider_position
     if g_start <= pos <= g_end:
+        save_data.record_clear("Slider Minigame", st.session_state.slider_level, f"Position {pos:.1f}%")
         st.session_state.slider_history.append({
             'level': st.session_state.slider_level,
             'green_range': st.session_state.green_range,
             'position': pos,
         })
         st.session_state.slider_history = st.session_state.slider_history[-(MAX_SLIDER_BARS - 1):]
-        st.session_state.slider_score += 100
         st.session_state.slider_level += 1
         st.session_state.slider_position = 50
         st.session_state.slider_direction = 1
@@ -65,12 +71,14 @@ def main():
     st.write('# 🎚️ Slider Precision Minigame')
     st.caption('Timing mechanics prototype: Stop the marker inside the green zone.')
 
+    save_data = get_save_data()
+
     if 'slider_level' not in st.session_state or 'slider_history' not in st.session_state:
         init_slider()
 
     c1, c2, c3, c4 = st.columns([1, 1, 1.2, 1])
     c1.metric('Level', st.session_state.slider_level)
-    c2.metric('Score', st.session_state.slider_score)
+    c2.metric('Saved Score', save_data.check_score())
     with c3:
         nierva_timer.render_timer_display("slider", label="Game Time")
     if c4.button('New Game'):

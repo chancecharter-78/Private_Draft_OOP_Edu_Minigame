@@ -2,15 +2,17 @@ import streamlit as st
 import nierva_home
 import nierva_about
 import nierva_source
-import nierva_timer
 import nierva_slider
 import nierva_bit_fit
 import nierva_hacking
+from nierva_save_data import GameSaveData
 
 def init():
     st.session_state.page = 'Homepage'
     st.session_state.project = False
     st.session_state.game = False
+    if "save_data" not in st.session_state:
+        st.session_state.save_data = st.session_state.get("nierva_save_data", GameSaveData())
 
 def draw_style():
     st.set_page_config(page_title="Educational Minigames Prototype", page_icon='🎮', layout='centered')
@@ -40,7 +42,7 @@ def load_page():
 def set_page(loc=None, reset=False):
     if not st.session_state.get('page') == 'Homepage':
         for key in list(st.session_state.keys()):
-            if key not in ('page', 'project', 'game', 'pages', 'set'):
+            if key not in ('page', 'project', 'game', 'pages', 'set', 'save_data', 'nierva_save_data'):
                 st.session_state.pop(key)
 
     if loc:

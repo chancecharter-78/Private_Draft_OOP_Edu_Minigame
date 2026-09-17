@@ -1,4 +1,10 @@
 import streamlit as st
+from nierva_save_data import GameSaveData
+
+def get_save_data() -> GameSaveData:
+    if "save_data" not in st.session_state:
+        st.session_state.save_data = st.session_state.get("nierva_save_data", GameSaveData())
+    return st.session_state.save_data
 
 def main():
     st.markdown(
@@ -41,6 +47,19 @@ def main():
         ''',
         unsafe_allow_html=True,
     )
+    save_data = get_save_data()
+    st.subheader("📊 Save Progress Overview")
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Player", save_data.player_name)
+    col2.metric("Accumulated Score", save_data.check_score())
+    col3.metric("Player Level", save_data.check_level())
+    col4.metric("Total Clears", save_data.check_completed_rounds())
+
+    if st.button("🔄 Reset Save Data Progress"):
+        save_data.reset_save()
+        st.success("Save Data reset back to initial Set 1 state!")
+        st.rerun()
+
 
 if __name__ == '__main__':
     main()

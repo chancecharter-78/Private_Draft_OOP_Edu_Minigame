@@ -1,6 +1,12 @@
 import streamlit as st
 import random
 import nierva_timer
+from nierva_save_data import GameSaveData
+
+def get_save_data() -> GameSaveData:
+    if "save_data" not in st.session_state:
+        st.session_state.save_data = GameSaveData()
+    return st.session_state.save_data
 
 def random_active_columns(column_count, round_number):
     minimum_active = min(column_count, max(3, round_number + 1))
@@ -19,7 +25,6 @@ def init_bit_fit():
     st.session_state.bf_player = [random.choice([0, 1]) for _ in range(st.session_state.bf_cols)]
     st.session_state.bf_active = random_active_columns(st.session_state.bf_cols, st.session_state.bf_round)
     st.session_state.bf_over = False
-    st.session_state.bf_score = 0
     st.session_state.bf_msg = ""
     nierva_timer.start_timer("bit_fit")
 
@@ -28,12 +33,13 @@ def toggle_bit(idx):
         st.session_state.bf_player[idx] = 1 - st.session_state.bf_player[idx]
 
 def submit_round():
+    save_data = get_save_data()
     matches_active_columns = all(
         not active or st.session_state.bf_player[idx] == st.session_state.bf_falling[idx]
         for idx, active in enumerate(st.session_state.bf_active)
     )
     if matches_active_columns:
-        st.session_state.bf_score += 10 * st.session_state.bf_round
+        save_data.record_clear("Bit Fit", st.session_state.bf_round, f"Round {st.session_state.bf_round} matched")
         st.session_state.bf_round += 1
         st.session_state.bf_falling = [random.choice([0, 1]) for _ in range(st.session_state.bf_cols)]
         st.session_state.bf_player = [random.choice([0, 1]) for _ in range(st.session_state.bf_cols)]
@@ -48,12 +54,14 @@ def main():
     st.write('# 💻 Bit Fit Binary Matching Game')
     st.caption('Binary mechanics prototype: Match the bottom bit array to the target pattern above.')
 
+    save_data = get_save_data()
+
     if 'bf_round' not in st.session_state or 'bf_active' not in st.session_state:
         init_bit_fit()
 
     c1, c2, c3, c4 = st.columns([1, 1, 1.2, 1])
     c1.metric('Round', st.session_state.bf_round)
-    c2.metric('Score', st.session_state.bf_score)
+    c2.metric('Saved Score', save_data.check_score())
     with c3:
         nierva_timer.render_timer_display("bit_fit", label="Session Time")
     if c4.button('Restart Bit Fit'):

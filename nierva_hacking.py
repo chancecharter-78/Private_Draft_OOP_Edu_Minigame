@@ -1,6 +1,7 @@
 import streamlit as st
 import random
 import nierva_timer
+from nierva_save_data import GameSaveData
 
 WORD_LIST = [
     "SYSTEM", "ACCESS", "CIPHER", "HACKER", "SIGNAL", "MATRIX",
@@ -10,13 +11,17 @@ TERMINAL_DUMP_LINES = 20
 TERMINAL_DUMP_WIDTH = 41
 NOISE_CHARACTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789$#@%&!?+-*/"
 
+def get_save_data() -> GameSaveData:
+    if "save_data" not in st.session_state:
+        st.session_state.save_data = GameSaveData()
+    return st.session_state.save_data
+
 def generate_terminal_dump(words):
     dump = [
         [random.choice(NOISE_CHARACTERS) for _ in range(TERMINAL_DUMP_WIDTH)]
         for _ in range(TERMINAL_DUMP_LINES)
     ]
     placements = []
-
     for word in words:
         for _ in range(100):
             row = random.randrange(TERMINAL_DUMP_LINES)
@@ -29,7 +34,6 @@ def generate_terminal_dump(words):
                 dump[row][start:end] = word
                 placements.append((row, start, end))
                 break
-
     return "\n".join("".join(row) for row in dump)
 
 def init_hacking():
@@ -62,6 +66,7 @@ def evaluate_guess(guess: str) -> str:
     return "".join(res)
 
 def pick_word(word: str):
+    save_data = get_save_data()
     if st.session_state.hack_over:
         return
     word = word.strip().upper()
@@ -74,7 +79,8 @@ def pick_word(word: str):
     if word == st.session_state.hack_password:
         st.session_state.hack_win = True
         st.session_state.hack_over = True
-        nierva_timer.stop_timer("hacking")
+        elapsed = nierva_timer.stop_timer("hacking")
+        save_data.record_clear("Terminal Hacking", 1, f"Password Decrypted in {nierva_timer.format_time(elapsed)}")
     elif st.session_state.hack_attempts <= 0:
         st.session_state.hack_over = True
         nierva_timer.stop_timer("hacking")
@@ -82,6 +88,8 @@ def pick_word(word: str):
 def main():
     st.write('# 🔐 Terminal Password Decryption Game')
     st.caption('Deduction mechanics prototype: Find the correct key sequence using positional feedback.')
+
+    save_data = get_save_data()
 
     if (
         'hack_password' not in st.session_state
@@ -92,7 +100,7 @@ def main():
 
     c1, c2, c3, c4 = st.columns([1, 1, 1.2, 1])
     c1.metric('Attempts Left', f"{st.session_state.hack_attempts}/8")
-    c2.metric('Status', 'UNLOCKED' if st.session_state.hack_win else ('LOCKED' if not st.session_state.hack_over else 'FAILED'))
+    c2.metric('Saved Score', save_data.check_score())
     with c3:
         nierva_timer.render_timer_display("hacking", label="Decryption Time")
     if c4.button('Reset Terminal'):
