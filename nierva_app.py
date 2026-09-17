@@ -2,6 +2,7 @@ import streamlit as st
 import nierva_home
 import nierva_about
 import nierva_source
+import nierva_timer
 import nierva_slider
 import nierva_bit_fit
 import nierva_hacking
@@ -88,7 +89,7 @@ def main():
         source_col.button('📁 Source', on_click=set_page, args=('Source',))
 
         if st.session_state.get('page') == 'Homepage':
-            st.image('https://c.tenor.com/-420uI8y-RkAAAAd/anime-welcome.gif')
+            st.image('https://media.tenor.com/WiTP5aZyPLUAAAAi/dice-roll-dice.gif')
 
     load_page()
 

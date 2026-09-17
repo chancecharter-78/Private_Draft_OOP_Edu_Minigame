@@ -6,6 +6,31 @@ WORD_LIST = [
     "SYSTEM", "ACCESS", "CIPHER", "HACKER", "SIGNAL", "MATRIX",
     "SERVER", "BINARY", "SAFETY", "ROUTER", "SHIELD", "OUTPUT"
 ]
+TERMINAL_DUMP_LINES = 20
+TERMINAL_DUMP_WIDTH = 41
+NOISE_CHARACTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789$#@%&!?+-*/"
+
+def generate_terminal_dump(words):
+    dump = [
+        [random.choice(NOISE_CHARACTERS) for _ in range(TERMINAL_DUMP_WIDTH)]
+        for _ in range(TERMINAL_DUMP_LINES)
+    ]
+    placements = []
+
+    for word in words:
+        for _ in range(100):
+            row = random.randrange(TERMINAL_DUMP_LINES)
+            start = random.randrange(TERMINAL_DUMP_WIDTH - len(word) + 1)
+            end = start + len(word)
+            if all(
+                placed_row != row or end <= placed_start or start >= placed_end
+                for placed_row, placed_start, placed_end in placements
+            ):
+                dump[row][start:end] = word
+                placements.append((row, start, end))
+                break
+
+    return "\n".join("".join(row) for row in dump)
 
 def init_hacking():
     st.session_state.hack_password = random.choice(WORD_LIST)
@@ -13,8 +38,10 @@ def init_hacking():
     if st.session_state.hack_password not in st.session_state.hack_words:
         st.session_state.hack_words[0] = st.session_state.hack_password
     random.shuffle(st.session_state.hack_words)
+    st.session_state.hack_terminal_dump = generate_terminal_dump(st.session_state.hack_words)
     st.session_state.hack_attempts = 8
     st.session_state.hack_log = []
+    st.session_state.hack_input = ""
     st.session_state.hack_over = False
     st.session_state.hack_win = False
     nierva_timer.start_timer("hacking")
@@ -26,7 +53,7 @@ def evaluate_guess(guess: str) -> str:
     pwd = st.session_state.hack_password
     res = []
     for i, char in enumerate(guess):
-        if char == pwd[i]:
+        if i < len(pwd) and char == pwd[i]:
             res.append(char)
         elif char in pwd:
             res.append("#")
@@ -36,6 +63,9 @@ def evaluate_guess(guess: str) -> str:
 
 def pick_word(word: str):
     if st.session_state.hack_over:
+        return
+    word = word.strip().upper()
+    if not word:
         return
     st.session_state.hack_attempts -= 1
     feedback = evaluate_guess(word)
@@ -53,7 +83,11 @@ def main():
     st.write('# 🔐 Terminal Password Decryption Game')
     st.caption('Deduction mechanics prototype: Find the correct key sequence using positional feedback.')
 
-    if 'hack_password' not in st.session_state:
+    if (
+        'hack_password' not in st.session_state
+        or 'hack_terminal_dump' not in st.session_state
+        or 'hack_input' not in st.session_state
+    ):
         init_hacking()
 
     c1, c2, c3, c4 = st.columns([1, 1, 1.2, 1])
@@ -67,17 +101,23 @@ def main():
     main_col, log_col = st.columns([1.2, 1])
 
     with main_col:
-        st.markdown("#### 📡 Encrypted Keyword Stream:")
-        for w in st.session_state.hack_words:
-            st.button(
-                f"❯ {w}",
-                key=f"hack_w_{w}",
-                on_click=pick_word,
-                args=(w,),
-                disabled=st.session_state.hack_over,
-                use_container_width=True
-            )
-        st.button('🔄 Shuffle Stream Positions', on_click=shuffle_words)
+        st.markdown("#### ▒ Encrypted Terminal Dump:")
+        st.code(st.session_state.hack_terminal_dump, language="text")
+        st.markdown("#### 🔑 Enter Password:")
+        st.text_input(
+            "Password",
+            key="hack_input",
+            max_chars=12,
+            disabled=st.session_state.hack_over,
+            label_visibility="collapsed",
+        )
+        st.button(
+            "Submit Password",
+            on_click=pick_word,
+            args=(st.session_state.hack_input,),
+            disabled=st.session_state.hack_over,
+            use_container_width=True,
+        )
 
     with log_col:
         st.markdown("#### 📋 Diagnostic Log:")

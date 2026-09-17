@@ -8,7 +8,7 @@ def main():
         </p>
 
         <h2 align="center">
-            Hi, I'm Charles Terrence R. Nierva, though you may mainly refer to me as ChanceCharter
+            Hi, I'm Charles, A.K.A. ChanceCharter
         </h2>
 
         ##### Short bio
