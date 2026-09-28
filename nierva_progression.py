@@ -1,6 +1,5 @@
-import random
-
 import streamlit as st
+import random
 
 GAME_ORDER = ("Slider", "Bit Fit", "Hacking")
 GAME_CLEAR_RANGES = {
