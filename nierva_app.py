@@ -103,8 +103,7 @@ def main():
             disabled=st.session_state.get('page') == 'CSV Database',
         )
 
-        if st.session_state.get('page') == 'Homepage':
-            st.image('https://media.tenor.com/WiTP5aZyPLUAAAAi/dice-roll-dice.gif')
+        st.image('https://media.tenor.com/WiTP5aZyPLUAAAAi/dice-roll-dice.gif')
 
     load_page()
 
