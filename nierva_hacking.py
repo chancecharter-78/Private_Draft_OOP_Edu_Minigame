@@ -1,19 +1,17 @@
 import streamlit as st
 import random
 import nierva_timer
-from nierva_save_data import GameSaveData
+import nierva_progression
+from nierva_save_data import GameSaveData, ensure_current_save_data
 
-WORD_LIST = [
-    "SYSTEM", "ACCESS", "CIPHER", "HACKER", "SIGNAL", "MATRIX",
-    "SERVER", "BINARY", "SAFETY", "ROUTER", "SHIELD", "OUTPUT"
-]
 TERMINAL_DUMP_LINES = 20
 TERMINAL_DUMP_WIDTH = 41
 NOISE_CHARACTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789$#@%&!?+-*/"
 
 def get_save_data() -> GameSaveData:
-    if "save_data" not in st.session_state:
-        st.session_state.save_data = GameSaveData()
+    st.session_state.save_data = ensure_current_save_data(
+        st.session_state.get("save_data", st.session_state.get("nierva_save_data"))
+    )
     return st.session_state.save_data
 
 def generate_terminal_dump(words):
@@ -21,26 +19,21 @@ def generate_terminal_dump(words):
         [random.choice(NOISE_CHARACTERS) for _ in range(TERMINAL_DUMP_WIDTH)]
         for _ in range(TERMINAL_DUMP_LINES)
     ]
-    placements = []
-    for word in words:
-        for _ in range(100):
-            row = random.randrange(TERMINAL_DUMP_LINES)
-            start = random.randrange(TERMINAL_DUMP_WIDTH - len(word) + 1)
-            end = start + len(word)
-            if all(
-                placed_row != row or end <= placed_start or start >= placed_end
-                for placed_row, placed_start, placed_end in placements
-            ):
-                dump[row][start:end] = word
-                placements.append((row, start, end))
-                break
+    rows = random.sample(range(TERMINAL_DUMP_LINES), len(words))
+    for row, word in zip(rows, words):
+        start = random.randrange(TERMINAL_DUMP_WIDTH - len(word) + 1)
+        dump[row][start:start + len(word)] = word
     return "\n".join("".join(row) for row in dump)
 
 def init_hacking():
-    st.session_state.hack_password = random.choice(WORD_LIST)
-    st.session_state.hack_words = random.sample(WORD_LIST, 6)
-    if st.session_state.hack_password not in st.session_state.hack_words:
-        st.session_state.hack_words[0] = st.session_state.hack_password
+    previous_question = st.session_state.get("hack_question", {}).get("question")
+    question = get_save_data().get_random_question(previous_question)
+    st.session_state.hack_question = question
+    st.session_state.hack_password = question["correct_answer"]
+    st.session_state.hack_words = [
+        question["correct_answer"],
+        *question["wrong_answers"],
+    ]
     random.shuffle(st.session_state.hack_words)
     st.session_state.hack_terminal_dump = generate_terminal_dump(st.session_state.hack_words)
     st.session_state.hack_attempts = 8
@@ -65,10 +58,12 @@ def evaluate_guess(guess: str) -> str:
             res.append("-")
     return "".join(res)
 
-def pick_word(word: str):
+def pick_word(word: str | None = None):
     save_data = get_save_data()
     if st.session_state.hack_over:
         return
+    if word is None:
+        word = st.session_state.get("hack_input", "")
     word = word.strip().upper()
     if not word:
         return
@@ -81,13 +76,14 @@ def pick_word(word: str):
         st.session_state.hack_over = True
         elapsed = nierva_timer.stop_timer("hacking")
         save_data.record_clear("Terminal Hacking", 1, f"Password Decrypted in {nierva_timer.format_time(elapsed)}")
+        nierva_progression.record_success("Hacking")
     elif st.session_state.hack_attempts <= 0:
         st.session_state.hack_over = True
         nierva_timer.stop_timer("hacking")
 
 def main():
     st.write('# 🔐 Terminal Password Decryption Game')
-    st.caption('Deduction mechanics prototype: Find the correct key sequence using positional feedback.')
+    st.caption('Find the answer to the question hidden among the terminal noise.')
 
     save_data = get_save_data()
 
@@ -122,13 +118,20 @@ def main():
         st.button(
             "Submit Password",
             on_click=pick_word,
-            args=(st.session_state.hack_input,),
             disabled=st.session_state.hack_over,
             use_container_width=True,
         )
 
     with log_col:
         st.markdown("#### 📋 Diagnostic Log:")
+        question = st.session_state.hack_question
+        st.text_area(
+            "Question",
+            value=question["question"],
+            height=90,
+            disabled=True,
+        )
+        st.caption(f"Difficulty: {question['difficulty']}")
         st.info(
             "**Legend**:\n"
             "- `Letter`: Exact match (correct position)\n"

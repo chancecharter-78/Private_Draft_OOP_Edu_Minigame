@@ -5,6 +5,8 @@ import nierva_source
 import nierva_slider
 import nierva_bit_fit
 import nierva_hacking
+import nierva_progression
+import nierva_csvdb
 from nierva_save_data import GameSaveData
 
 def init():
@@ -32,6 +34,7 @@ def load_page():
         'Slider': nierva_slider.main,
         'Bit Fit': nierva_bit_fit.main,
         'Hacking': nierva_hacking.main,
+        'CSV Database': nierva_csvdb.main,
     }
     curr_page = st.session_state.get('page', 'Homepage')
     if curr_page in pages:
@@ -40,26 +43,29 @@ def load_page():
         nierva_home.main()
 
 def set_page(loc=None, reset=False):
+    target_page = loc or st.session_state.get('set', 'Homepage')
+    if target_page in nierva_progression.GAME_ORDER:
+        nierva_progression.start_game(target_page)
+        return
+
     if not st.session_state.get('page') == 'Homepage':
         for key in list(st.session_state.keys()):
-            if key not in ('page', 'project', 'game', 'pages', 'set', 'save_data', 'nierva_save_data'):
+            if key not in (
+                'page', 'project', 'game', 'pages', 'set', 'save_data',
+                'nierva_save_data', 'flow_game', 'flow_clears', 'flow_target',
+            ):
                 st.session_state.pop(key)
 
-    if loc:
-        st.session_state.page = loc
-    else:
-        st.session_state.page = st.session_state.get('set', 'Homepage')
+    st.session_state.page = target_page
 
     if reset:
         st.session_state.project = False
-    elif st.session_state.page in ('About me', 'Source'):
+    elif st.session_state.page in ('About me', 'Source', 'CSV Database'):
         st.session_state.project = True
         st.session_state.game = False
 
 def change_button():
-    set_page('Slider')
-    st.session_state.game = True
-    st.session_state.project = True
+    nierva_progression.start_game('Slider')
 
 def main():
     if 'page' not in st.session_state:
@@ -89,6 +95,13 @@ def main():
 
         about_col.button('🧑‍💻 Myself', on_click=set_page, args=('About me',))
         source_col.button('📁 Source', on_click=set_page, args=('Source',))
+        st.button(
+            '🗃️ CSV Database',
+            on_click=set_page,
+            args=('CSV Database',),
+            use_container_width=True,
+            disabled=st.session_state.get('page') == 'CSV Database',
+        )
 
         if st.session_state.get('page') == 'Homepage':
             st.image('https://media.tenor.com/WiTP5aZyPLUAAAAi/dice-roll-dice.gif')
