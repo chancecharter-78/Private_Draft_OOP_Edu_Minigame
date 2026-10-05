@@ -1,126 +1,206 @@
-import streamlit as st
 import random
-import nierva_timer
+import time
+
+import streamlit as st
+
 import nierva_progression
-from nierva_save_data import GameSaveData, ensure_current_save_data
+import nierva_timer
+from nierva_save_data import ensure_current_save_data
+
 
 TERMINAL_DUMP_LINES = 20
 TERMINAL_DUMP_WIDTH = 41
 NOISE_CHARACTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789$#@%&!?+-*/"
+ROUND_SECONDS = 30
 
-def get_save_data() -> GameSaveData:
+
+def get_save_data():
     st.session_state.save_data = ensure_current_save_data(
-        st.session_state.get("save_data", st.session_state.get("nierva_save_data"))
+        st.session_state.get("save_data")
     )
     return st.session_state.save_data
 
+
 def generate_terminal_dump(words):
-    dump = [
-        [random.choice(NOISE_CHARACTERS) for _ in range(TERMINAL_DUMP_WIDTH)]
-        for _ in range(TERMINAL_DUMP_LINES)
+    width = max(TERMINAL_DUMP_WIDTH, *(len(word) for word in words))
+    lines = [
+        [random.choice(NOISE_CHARACTERS) for _ in range(width)]
+        for _ in range(max(TERMINAL_DUMP_LINES, len(words)))
     ]
-    rows = random.sample(range(TERMINAL_DUMP_LINES), len(words))
+    rows = random.sample(range(len(lines)), len(words))
+
     for row, word in zip(rows, words):
-        start = random.randrange(TERMINAL_DUMP_WIDTH - len(word) + 1)
-        dump[row][start:start + len(word)] = word
-    return "\n".join("".join(row) for row in dump)
+        start = random.randint(0, width - len(word))
+        lines[row][start:start + len(word)] = word
+    return "\n".join("".join(line) for line in lines)
+
 
 def init_hacking():
-    previous_question = st.session_state.get("hack_question", {}).get("question")
-    question = get_save_data().get_random_question(previous_question)
+    previous_questions = st.session_state.get("hack_seen_questions", [])
+    question = get_save_data().get_random_question(previous_questions)
+    previous_questions.append(question["question"])
+    st.session_state.hack_seen_questions = previous_questions
+    words = [question["correct_answer"], *question["wrong_answers"]]
+    random.shuffle(words)
+
     st.session_state.hack_question = question
     st.session_state.hack_password = question["correct_answer"]
-    st.session_state.hack_words = [
-        question["correct_answer"],
-        *question["wrong_answers"],
-    ]
-    random.shuffle(st.session_state.hack_words)
-    st.session_state.hack_terminal_dump = generate_terminal_dump(st.session_state.hack_words)
-    st.session_state.hack_attempts = 8
+    st.session_state.hack_words = words
+    st.session_state.hack_terminal_dump = generate_terminal_dump(words)
+    st.session_state.hack_attempts = len(words) - 1
     st.session_state.hack_log = []
     st.session_state.hack_input = ""
     st.session_state.hack_over = False
     st.session_state.hack_win = False
+    st.session_state.hack_started = time.monotonic()
     nierva_timer.start_timer("hacking")
 
-def shuffle_words():
-    random.shuffle(st.session_state.hack_words)
 
-def evaluate_guess(guess: str) -> str:
-    pwd = st.session_state.hack_password
-    res = []
-    for i, char in enumerate(guess):
-        if i < len(pwd) and char == pwd[i]:
-            res.append(char)
-        elif char in pwd:
-            res.append("#")
-        else:
-            res.append("-")
-    return "".join(res)
+def evaluate_guess(guess, password):
+    feedback = ["-"] * len(guess)
+    remaining = {}
 
-def pick_word(word: str | None = None):
-    save_data = get_save_data()
+    for letter in password:
+        remaining[letter] = remaining.get(letter, 0) + 1
+
+    for index, letter in enumerate(guess):
+        if index < len(password) and letter == password[index]:
+            feedback[index] = letter
+            remaining[letter] -= 1
+
+    for index, letter in enumerate(guess):
+        if feedback[index] == "-" and remaining.get(letter, 0) > 0:
+            feedback[index] = "#"
+            remaining[letter] -= 1
+
+    return "".join(feedback)
+
+
+def lose_round(message):
+    st.session_state.hack_over = True
+    st.session_state.hack_win = False
+    st.session_state.hack_notice = message
+    nierva_timer.stop_timer("hacking")
+    nierva_progression.record_failure("Hacking")
+
+
+def restart_hacking():
+    seen_questions = st.session_state.get("hack_seen_questions", [])
+    nierva_progression.reset_game("Hacking")
+    st.session_state.hack_seen_questions = seen_questions
+
+
+def check_timeout():
+    if st.session_state.hack_over:
+        return False
+    if time.monotonic() - st.session_state.hack_started < ROUND_SECONDS:
+        return False
+    lose_round(f"⌛ Time's up! The sequence was {st.session_state.hack_password}.")
+    return True
+
+
+def pick_word():
     if st.session_state.hack_over:
         return
-    if word is None:
-        word = st.session_state.get("hack_input", "")
-    word = word.strip().upper()
-    if not word:
+    if check_timeout():
         return
-    st.session_state.hack_attempts -= 1
-    feedback = evaluate_guess(word)
-    st.session_state.hack_log.append((word, feedback))
 
-    if word == st.session_state.hack_password:
+    guess = st.session_state.get("hack_input", "").strip().upper()
+    st.session_state.hack_input = ""
+    if not guess:
+        st.session_state.hack_notice = "Enter a word from the terminal dump."
+        return
+    if guess not in st.session_state.hack_words:
+        st.session_state.hack_notice = "Choose one of the words hidden in the terminal dump."
+        return
+    if any(previous_guess == guess for previous_guess, _ in st.session_state.hack_log):
+        st.session_state.hack_notice = "You have already tried that word."
+        return
+
+    st.session_state.hack_attempts -= 1
+    st.session_state.hack_log.append(
+        (guess, evaluate_guess(guess, st.session_state.hack_password))
+    )
+    st.session_state.hack_notice = ""
+
+    if guess == st.session_state.hack_password:
         st.session_state.hack_win = True
         st.session_state.hack_over = True
         elapsed = nierva_timer.stop_timer("hacking")
-        save_data.record_clear("Terminal Hacking", 1, f"Password Decrypted in {nierva_timer.format_time(elapsed)}")
-        nierva_progression.record_success("Hacking")
+        message = (
+            f"🎉 Decryption Complete in {nierva_timer.format_time(elapsed)}! "
+            f"Target sequence was {st.session_state.hack_password}."
+        )
+        get_save_data().record_clear(
+            "Terminal Hacking",
+            1,
+            f"Password decrypted in {nierva_timer.format_time(elapsed)}",
+        )
+        if nierva_progression.record_success("Hacking", message):
+            return
+
+        init_hacking()
+        st.session_state.hack_notice = message
     elif st.session_state.hack_attempts <= 0:
-        st.session_state.hack_over = True
-        nierva_timer.stop_timer("hacking")
+        lose_round(f"💀 Lockout Triggered! Sequence was {st.session_state.hack_password}.")
+
+
+def render_countdown():
+    run_every = 0.1 if not st.session_state.hack_over else None
+
+    @st.fragment(run_every=run_every)
+    def draw():
+        if check_timeout():
+            st.rerun(scope="app")
+        remaining = max(
+            0,
+            ROUND_SECONDS - (time.monotonic() - st.session_state.hack_started),
+        )
+        st.metric("Time Left", f"{remaining:04.1f}s")
+
+    draw()
+
 
 def main():
-    st.write('# 🔐 Terminal Password Decryption Game')
-    st.caption('Find the answer to the question hidden among the terminal noise.')
+    st.write("# 🔐 Terminal Password Decryption Game")
+    st.caption("Find the answer to the question hidden among the terminal noise.")
 
     save_data = get_save_data()
-
-    if (
-        'hack_password' not in st.session_state
-        or 'hack_terminal_dump' not in st.session_state
-        or 'hack_input' not in st.session_state
-    ):
+    if "hack_password" not in st.session_state or "hack_started" not in st.session_state:
         init_hacking()
 
-    c1, c2, c3, c4 = st.columns([1, 1, 1.2, 1])
-    c1.metric('Attempts Left', f"{st.session_state.hack_attempts}/8")
-    c2.metric('Saved Score', save_data.check_score())
-    with c3:
-        nierva_timer.render_timer_display("hacking", label="Decryption Time")
-    if c4.button('Reset Terminal'):
-        init_hacking()
+    attempts_col, score_col, time_col, reset_col = st.columns([1, 1, 1.2, 1])
+    reset_col.button(
+        "Reset Terminal",
+        on_click=restart_hacking,
+        disabled=not st.session_state.hack_over,
+    )
+    attempts_col.metric(
+        "Attempts Left",
+        f"{st.session_state.hack_attempts}/{len(st.session_state.hack_words) - 1}",
+    )
+    score_col.metric("Saved Score", save_data.check_score())
+    with time_col:
+        render_countdown()
 
     main_col, log_col = st.columns([1.2, 1])
-
     with main_col:
         st.markdown("#### ▒ Encrypted Terminal Dump:")
         st.code(st.session_state.hack_terminal_dump, language="text")
         st.markdown("#### 🔑 Enter Password:")
-        st.text_input(
-            "Password",
-            key="hack_input",
-            max_chars=12,
-            disabled=st.session_state.hack_over,
-            label_visibility="collapsed",
-        )
-        st.button(
-            "Submit Password",
-            on_click=pick_word,
-            disabled=st.session_state.hack_over,
-            use_container_width=True,
-        )
+        with st.form("hacking_guess"):
+            st.text_input(
+                "Password",
+                key="hack_input",
+                disabled=st.session_state.hack_over,
+                label_visibility="collapsed",
+            )
+            st.form_submit_button(
+                "Submit Password",
+                on_click=pick_word,
+                disabled=st.session_state.hack_over,
+                width="stretch",
+            )
 
     with log_col:
         st.markdown("#### 📋 Diagnostic Log:")
@@ -131,21 +211,22 @@ def main():
             height=90,
             disabled=True,
         )
-        st.caption(f"Difficulty: {question['difficulty']}")
+        st.caption(f"Subject: {question['game']} | Difficulty: {question['difficulty']}")
         st.info(
             "**Legend**:\n"
             "- `Letter`: Exact match (correct position)\n"
             "- `#`: Character exists (wrong position)\n"
             "- `-`: Character absent"
         )
-        for w, fb in reversed(st.session_state.hack_log):
-            st.code(f"> {w} -> FEEDBACK: {fb}")
+        for word, feedback in reversed(st.session_state.hack_log):
+            st.code(f"> {word} -> FEEDBACK: {feedback}")
 
-    if st.session_state.hack_win:
-        elapsed = nierva_timer.get_elapsed("hacking")
-        st.success(f"🎉 Decryption Complete in {nierva_timer.format_time(elapsed)}! Target sequence was **{st.session_state.hack_password}**.")
-    elif st.session_state.hack_over:
-        st.error(f"💀 Lockout Triggered! Sequence was **{st.session_state.hack_password}**.")
-
-if __name__ == '__main__':
+    if st.session_state.get("hack_notice"):
+        if st.session_state.hack_win:
+            st.success(st.session_state.hack_notice)
+        elif st.session_state.hack_over:
+            st.error(st.session_state.hack_notice)
+        else:
+            st.info(st.session_state.hack_notice)
+if __name__ == "__main__":
     main()

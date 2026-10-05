@@ -1,0 +1,181 @@
+Based on branch [prototype 2.1](https://github.com/chancecharter-78/Private_Draft_OOP_Edu_Minigame/tree/ai-assisted-prototype-V2.1)
+
+### All minigames
+
+Timer (Game/Session/Decryption Time) increments every second instead of every hundred milliseconds (0.1s)
+```py
+@st.fragment(run_every=1.0)
+def render_timer_display(game_key: str = "default", label: str = "Time Elapsed"):
+    elapsed = get_elapsed(game_key)
+    st.metric(label=label, value=format_time(elapsed))
+```
+Any event update that occurs also updates the timer (unintended behaviour if the timer was supposed to increment every second)
+
+When updates occur in the background (continuation of the timer problem), all mouse/pressing events aren't considered and are blocked until the event passes
+
+Ensure players aren't allowed to access the CSV, as it allows for data manipulation across all game sessions
+- The CSV Database page writes one global file with no auth, and `write_text` isn't atomic, so a game can also read a half-written file mid-save
+
+Metrics (Level/Round/Attempts Left) show stale values after pressing New Game / Restart Bit Fit / Reset Terminal
+- The metrics are drawn *before* the `if c4.button(...)` block that resets the state, so they render the old values for that run
+- Reproduced: after New Game the Level metric showed `4` while `slider_level` was actually `1`; after Reset Terminal, Attempts Left showed `7/8` while the real value was `8`
+- Bit Fit's Round metric has the same pattern
+
+`format_time()` truncates floating-point error, so the tenths digit is off
+```py
+tenths = int((seconds - int(seconds)) * 10)
+```
+- Reproduced: `format_time(2.3)` -> `00:02.2`, `format_time(4.6)` -> `00:04.5`
+
+Game switches happen with no feedback
+- When `record_success()` triggers the switch to the next minigame, the player is just dropped into a different game; the "Correct!" / "Decryption Complete" message is wiped along with the rest of the state
+
+`flow_clears` isn't reset when a game is failed
+- After Game Over -> New Game / Restart / Reset, the earlier clears still count toward `flow_target`, so the switch can happen sooner than the 2-6 / 5-8 / 4-6 range described on the Homepage
+
+The "save data" isn't actually saved
+- It only lives in `st.session_state`, so refreshing the page resets everything
+- `nierva_save_data` is read in several places but never written anywhere
+
+### Navigation
+
+Opening Myself / Source / CSV Database during a game destroys the game
+- `set_page()` pops every non-shared key when the current page isn't `Homepage`, so the timer, level and question are all lost
+- The minigame selectbox also disappears (`game=False`), and the only way back is Homepage -> Minigames, which always restarts at Slider
+
+`set_page('Homepage', True)` doesn't reset `st.session_state.game`
+- Harmless right now, but it leaves `project=False, game=True`, which can't be reached any other way
+
+#### Sidebar UI
+Unintended behaviour (truncation) on most resolutions besides portrait modes on mobile (or if resizing your browser)
+
+### Homepage
+
+"Reset Save Data Progress" success message is never visible
+```py
+st.success("Save Data reset back to initial Set 1 state!")
+st.rerun()
+```
+- `st.rerun()` fires immediately, so the message is never displayed
+- Reproduced: no `st.success` element exists after the click
+
+### CSV Database
+
+Validator and game loader disagree on headers, so a "valid" CSV crashes every minigame
+- `validate_csv()` lowercases and strips the headers, but `get_random_question()` uses exact `row["correct answer"]` lookups
+- Reproduced: `Game,Question,Correct Answer,Wrong Answer 1,...` -> "CSV is valid", saves fine, then every minigame raises `ValueError: Question CSV row 2 has a missing required value`
+
+Validator lets through content that breaks the games
+- Duplicate answers (`mars` / `MARS`, or a wrong answer equal to the correct one) pass validation. In Slider this gives two identical boxes, and `choices.index(correct)` only matches the first one, so picking the "right" copy counts as wrong
+- No answer length limit (see Hacking)
+- No check for non-letter answers (spaces, digits, symbols), which breaks Bit Fit's letter columns
+
+`game` and `difficulty` columns are never read
+- Every minigame pulls from every row, and the sample data puts subjects (`Science`, `Geography`) in a column called `game`
+- `difficulty` is displayed but has no effect
+
+### Slider
+Incorrect z-layer for the slider
+- The marker is `z-index:1` while the choice boxes are `z-index:2` with opaque backgrounds, so the marker renders behind the boxes and is only visible above/below/between them
+
+Marker position doesn't line up with the zones
+- The marker uses `left: {pos}%` of the whole track, but the four choice boxes have `gap: 5px`, so the marker can visually sit in one box while `pos // 25` scores it as the neighbour
+
+Random `AttributeError` when being redirected from Slider to Bit Fit (needs re-verification)
+- In certain cases (seems to be random), when the player gets redirected to Bit Fit, there is a chance for the columns to fail to load and give an `AttributeError`
+- Possibly related (unconfirmed): a fragment rerun firing after `start_game()` has wiped the `bf_*` keys
+
+### Bit Fit
+Answer gets revealed automatically
+- The Homepage says "within the time limit", but there is no time limit; the cipher row reveals every answer letter on its own in roughly 14-25s (reproduced), so waiting solves the round
+- Difficulty also doesn't scale between rounds
+
+10+ columns are too wide for `layout='centered'`
+- On narrow screens, `st.columns` stacks them vertically, so the 20 buttons end up in one long column
+
+`render_cipher_columns` keeps polling every 0.25s after Game Over / after leaving
+
+Non-letter answer characters are inserted unescaped into `unsafe_allow_html=True` markdown, and into button labels (`*`, `_`, `<`, `&` will render wrong)
+
+### Hacking
+8 attempts for 4 candidate answers (1 correct + 3 wrong) means you cannot realistically lose (especially given that all candidates are visible in the terminal dump and the answers are publicly available to read)
+
+Any string is accepted as a guess (not just the words in the dump)
+- Players can probe with something like `AAAA` and use the per-letter feedback to leak the password
+
+Feedback mishandles repeated letters
+```py
+elif char in pwd:
+    res.append("#")
+```
+
+`max_chars=12` on the password box makes any answer over 12 characters impossible to enter (if answers beyond 12 characters would be added)
+
+`generate_terminal_dump()` crashes on words longer than the dump width (41)
+- Reproduced: `ValueError: empty range for randrange()`
+
+Win/lose flow differs from the other two games
+- A win (with `flow_target` not reached) leaves the player stuck until they press Reset Terminal, while Slider / Bit Fit advance on their own
+- Reset Terminal also has no cost, so a win can be replayed for +100 points
+
+Enter doesn't submit the password, and the input isn't cleared after a guess
+
+### Repo / misc
+
+- `nierva__init__.py` can be removed
+- `__pycache__/*.cpython-314.pyc` files are committed, so consider a `.gitignore` file
+- Unused code: `shuffle_words()` in `nierva_hacking.py` and the `pages` key in the session-state keep-list
+
+### Added suggestions
+In `nierva_source.py`, consider changing `Look here [ https://github.com/chancecharter-78/Private_Draft_OOP_Edu_Minigame ] on GitHub.` to `Look [here](https://github.com/chancecharter-78/Private_Draft_OOP_Edu_Minigame) on GitHub.`, or by redirecting the user to the source instead
+
+- Validate on load *and* on save with the same normalised header logic (lowercase + strip) so the editor and the games can't disagree
+- Reject duplicate / case-only-duplicate answers, answers over the password box limit, and non-A-Z answers if Bit Fit stays letters-only
+- Move the metric rendering below the reset buttons, or use `on_click=` callbacks
+- Show a "Switching to Bit Fit..." message before `start_game()` runs (entirely QoL)
+
+
+Current game state:
+
+- The current score and progress live in the in-memory GameSaveData object
+  attached to Streamlit session state. This code does not write player progress
+  to a save file or database, so it is not permanent storage across sessions.
+- Each successful round calls record_clear immediately. Points are not held
+  aside until an entire minigame ends: 100 multiplied by the cleared level/
+  round number is added to the score at once.
+- The shared progression flow chooses a random number of successful clears for
+  the current game before it switches to the next game in the fixed order.
+- Timers record and display elapsed time. They do not impose a time limit.
+- Bit Fit's answer-reveal animation is randomized. Some answer letters begin
+  to reveal after 6–15 seconds, with dash/hash stages; the last scheduled
+  letter is set for a time drawn from a triangular 16–25-second distribution
+  (most likely near 18 seconds), subject to the prior reveal schedule.
+- The question CSV is read from beside nierva_save_data.py. The CSV editor
+  validates before saving changes to that file.
+
+
+To be added:
+- Add a real-time leaderboard that can be shared online with a private SQL database, especially
+  since players will be accessing the program via "https://share.streamlit.io/" and will also be
+  able to access the original github files. For now, I'm fine with working with local leaderboard.
+- Add a username opening page so that users can be logged on the leaderboard, but for now just 
+  guard from possible duplicate names, and return username already exists, please try another. 
+  Especially since I'm not sure how to handle multiple active users affecting the leaderboard.
+- I want it so that in the game of bit fit, the longer the user takes to spend on answering, 
+  the shorter the score multiplier costs, here are the conditions:
+  > solved without a single letter appearing (100 pts x 3)
+  > solved with 2-3 letters appearing (100 pts x 2.5)
+  > solved with about half the letters letters appearing (100 pts)
+  > solved with all letters fully appeared (50 pts)
+  > A 5 second hidden countdown will appear after all the letters are visible already 
+    (just rely on when the final letter appears and add 5 seconds to it), if the user
+    doesn't answer within that time limit, they lose.
+- the hacking game should have about a 30 second time limit for each round / question
+- the slider game should also have these conditions randomized at a specific range:
+  > The 1st slider has a 15 second hidden timer, if not answered skip to next slider
+  > The 2nd and 3rd slider have a 12 second hidden timer, if not answered skip to next slider.
+    ( but if it's the 2nd, it just goes to the 3rd slider, only retaining the 12 second timer )
+  > in the rest of the sliders afterwards, they all have an 8 second timer
+  > If the player doesn't win about half or more than half, they lose. Otherwise, they get 
+    to proceed to the next random minigame 
+

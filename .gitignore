@@ -1,0 +1,5 @@
+__pycache__/
+*.py[cod]
+nierva_players.sqlite3
+nierva_players.sqlite3-shm
+nierva_players.sqlite3-wal

@@ -1,31 +1,42 @@
-import streamlit as st
 import time
 
-def start_timer(game_key: str = "default"):
-    st.session_state[f"{game_key}_start_time"] = time.time()
+import streamlit as st
+
+
+def start_timer(game_key="default"):
+    st.session_state[f"{game_key}_start_time"] = time.monotonic()
     st.session_state[f"{game_key}_is_active"] = True
     st.session_state[f"{game_key}_elapsed"] = 0.0
 
-def stop_timer(game_key: str = "default") -> float:
-    if f"{game_key}_start_time" in st.session_state and st.session_state.get(f"{game_key}_is_active", False):
-        elapsed = time.time() - st.session_state[f"{game_key}_start_time"]
+
+def stop_timer(game_key="default"):
+    if st.session_state.get(f"{game_key}_is_active", False):
+        elapsed = get_elapsed(game_key)
         st.session_state[f"{game_key}_elapsed"] = elapsed
         st.session_state[f"{game_key}_is_active"] = False
         return elapsed
     return st.session_state.get(f"{game_key}_elapsed", 0.0)
 
-def get_elapsed(game_key: str = "default") -> float:
+
+def get_elapsed(game_key="default"):
     if st.session_state.get(f"{game_key}_is_active", False):
-        return time.time() - st.session_state.get(f"{game_key}_start_time", time.time())
+        start_time = st.session_state.get(f"{game_key}_start_time", time.monotonic())
+        return time.monotonic() - start_time
     return st.session_state.get(f"{game_key}_elapsed", 0.0)
 
-def format_time(seconds: float) -> str:
-    mins = int(seconds // 60)
-    secs = int(seconds % 60)
-    tenths = int((seconds - int(seconds)) * 10)
-    return f"{mins:02d}:{secs:02d}.{tenths}"
 
-@st.fragment(run_every=1.0)
-def render_timer_display(game_key: str = "default", label: str = "Time Elapsed"):
-    elapsed = get_elapsed(game_key)
-    st.metric(label=label, value=format_time(elapsed))
+def format_time(seconds):
+    tenths_total = round(max(0, seconds) * 10)
+    minutes, remaining_tenths = divmod(tenths_total, 600)
+    whole_seconds, tenths = divmod(remaining_tenths, 10)
+    return f"{minutes:02d}:{whole_seconds:02d}.{tenths}"
+
+
+def render_timer_display(game_key="default", label="Time Elapsed"):
+    run_every = 0.1 if st.session_state.get(f"{game_key}_is_active", False) else None
+
+    @st.fragment(run_every=run_every)
+    def draw():
+        st.metric(label=label, value=format_time(get_elapsed(game_key)))
+
+    draw()
