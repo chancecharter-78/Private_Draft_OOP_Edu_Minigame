@@ -63,6 +63,7 @@ def get_stop_position(history, ticks_back=2):
 
 
 def update_marker():
+    history = st.session_state.setdefault("slider_position_history", [])
     now = time.monotonic()
     previous_update = st.session_state.get("slider_last_update", now)
     elapsed = now - previous_update
@@ -80,7 +81,6 @@ def update_marker():
     )
     st.session_state.slider_position = position
     st.session_state.slider_direction = direction
-    history = st.session_state.slider_position_history
     history.append((position, direction))
     st.session_state.slider_position_history = history[-3:]
 
@@ -145,7 +145,9 @@ def finish_round(won):
 def lock_slider():
     if st.session_state.slider_over:
         return
-    previous_tick = get_stop_position(st.session_state.slider_position_history)
+    previous_tick = get_stop_position(
+        st.session_state.get("slider_position_history", [])
+    )
     if previous_tick is not None:
         position, direction = previous_tick
         st.session_state.slider_position = position
