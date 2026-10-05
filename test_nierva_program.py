@@ -107,6 +107,11 @@ class GameRuleTests(unittest.TestCase):
         self.assertAlmostEqual(one_second[0], ten_frames[0])
         self.assertEqual(one_second[1], ten_frames[1])
 
+    def test_slider_stop_uses_two_recorded_ticks_earlier(self):
+        ticks = [(10, 1), (20, 1), (30, 1), (40, 1)]
+        self.assertEqual(nierva_slider.get_stop_position(ticks), (20, 1))
+        self.assertEqual(nierva_slider.get_stop_position(ticks[:2]), (10, 1))
+
     def test_bit_fit_points_use_reveal_tiers(self):
         self.assertEqual(nierva_bit_fit.calculate_points(2, 0, 8), 600)
         self.assertEqual(nierva_bit_fit.calculate_points(2, 3, 8), 500)

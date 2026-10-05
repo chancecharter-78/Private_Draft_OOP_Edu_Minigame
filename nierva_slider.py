@@ -30,6 +30,7 @@ def init_slider():
     st.session_state.slider_over = False
     st.session_state.slider_msg = ""
     st.session_state.slider_last_update = time.monotonic()
+    st.session_state.slider_position_history = []
     nierva_timer.start_timer("slider")
     set_slider_question()
 
@@ -43,6 +44,7 @@ def set_slider_question():
     st.session_state.slider_question = question
     st.session_state.slider_choices = choices
     st.session_state.slider_correct_index = choices.index(question["correct_answer"])
+    st.session_state.slider_position_history = []
 
 
 def advance_position(position, direction, speed, elapsed):
@@ -51,6 +53,13 @@ def advance_position(position, direction, speed, elapsed):
     if phase < 100:
         return phase, 1
     return 200 - phase, -1
+
+
+def get_stop_position(history, ticks_back=2):
+    if not history:
+        return None
+    history_index = max(0, len(history) - ticks_back - 1)
+    return history[history_index]
 
 
 def update_marker():
@@ -71,6 +80,9 @@ def update_marker():
     )
     st.session_state.slider_position = position
     st.session_state.slider_direction = direction
+    history = st.session_state.slider_position_history
+    history.append((position, direction))
+    st.session_state.slider_position_history = history[-3:]
 
 
 def end_slider():
@@ -133,7 +145,11 @@ def finish_round(won):
 def lock_slider():
     if st.session_state.slider_over:
         return
-    update_marker()
+    previous_tick = get_stop_position(st.session_state.slider_position_history)
+    if previous_tick is not None:
+        position, direction = previous_tick
+        st.session_state.slider_position = position
+        st.session_state.slider_direction = direction
     selected_index = min(int(st.session_state.slider_position // 25), 3)
     finish_round(selected_index == st.session_state.slider_correct_index)
 
