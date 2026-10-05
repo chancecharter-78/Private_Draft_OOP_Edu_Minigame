@@ -57,7 +57,7 @@ def main():
     )
     with st.expander("CSV format and AI prompt"):
         st.markdown("Use this exact header followed by one question per row:")
-        st.code(get_csv_template(), language="csv")
+        st.code(get_csv_template(), language="csv", wrap_lines=True)
         st.markdown(
             "Restrictions:\n"
             "- Include every required column in the header.\n"
@@ -68,7 +68,7 @@ def main():
             "- Use one question per row."
         )
         st.markdown("Copy this prompt into an AI tool to generate a compatible CSV:")
-        st.code(get_ai_prompt(), language="text")
+        st.code(get_ai_prompt(), language="text", wrap_lines=True)
 
     username = st.session_state.username
     question_sets = list_question_sets(username)
