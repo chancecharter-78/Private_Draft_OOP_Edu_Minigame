@@ -1,9 +1,8 @@
+import streamlit as st
+
 import random
 import string
 import time
-
-import streamlit as st
-
 import nierva_progression
 import nierva_timer
 from nierva_save_data import ensure_current_save_data
@@ -210,14 +209,13 @@ def draw_cipher_columns():
         )
 
 
-def render_cipher_columns():
-    run_every = 0.1 if not st.session_state.bf_over else None
-
-    @st.fragment(run_every=run_every)
-    def draw():
-        draw_cipher_columns()
-
-    draw()
+@st.fragment(run_every=0.25)
+def render_live_bit_fit():
+    st.metric(
+        "Session Time",
+        nierva_timer.format_time(nierva_timer.get_elapsed("bit_fit")),
+    )
+    draw_cipher_columns()
 
 
 def main():
@@ -228,15 +226,13 @@ def main():
     if "bf_round" not in st.session_state or "bf_options" not in st.session_state:
         init_bit_fit()
 
-    reset_col, score_col, timer_col, restart_col = st.columns([1, 1, 1.2, 1])
+    reset_col, score_col, restart_col = st.columns([1, 1, 1])
     if restart_col.button("Restart Bit Fit"):
         nierva_progression.reset_game("Bit Fit")
         init_bit_fit()
         st.rerun()
     reset_col.metric("Round", st.session_state.bf_round)
     score_col.metric("Saved Score", save_data.check_score())
-    with timer_col:
-        nierva_timer.render_timer_display("bit_fit", label="Session Time")
 
     question = st.session_state.bf_question
     st.info(question["question"])
@@ -246,7 +242,7 @@ def main():
     )
 
     st.markdown("### 🔎 Letter Cipher Columns:")
-    render_cipher_columns()
+    render_live_bit_fit()
     st.markdown("---")
     st.markdown("### 🔀 Cycle the Letter in Each Active Column:")
 
