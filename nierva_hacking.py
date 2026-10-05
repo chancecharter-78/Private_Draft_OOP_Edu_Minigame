@@ -1,5 +1,4 @@
 import random
-import time
 
 import streamlit as st
 
@@ -11,7 +10,6 @@ from nierva_save_data import ensure_current_save_data
 TERMINAL_DUMP_LINES = 20
 TERMINAL_DUMP_WIDTH = 41
 NOISE_CHARACTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789$#@%&!?+-*/"
-ROUND_SECONDS = 30
 
 
 def get_save_data():
@@ -52,7 +50,6 @@ def init_hacking():
     st.session_state.hack_input = ""
     st.session_state.hack_over = False
     st.session_state.hack_win = False
-    st.session_state.hack_started = time.monotonic()
     nierva_timer.start_timer("hacking")
 
 
@@ -90,19 +87,8 @@ def restart_hacking():
     st.session_state.hack_seen_questions = seen_questions
 
 
-def check_timeout():
-    if st.session_state.hack_over:
-        return False
-    if time.monotonic() - st.session_state.hack_started < ROUND_SECONDS:
-        return False
-    lose_round(f"⌛ Time's up! The sequence was {st.session_state.hack_password}.")
-    return True
-
-
 def pick_word():
     if st.session_state.hack_over:
-        return
-    if check_timeout():
         return
 
     guess = st.session_state.get("hack_input", "").strip().upper()
@@ -145,28 +131,12 @@ def pick_word():
         lose_round(f"💀 Lockout Triggered! Sequence was {st.session_state.hack_password}.")
 
 
-def render_countdown():
-    run_every = 0.1 if not st.session_state.hack_over else None
-
-    @st.fragment(run_every=run_every)
-    def draw():
-        if check_timeout():
-            st.rerun(scope="app")
-        remaining = max(
-            0,
-            ROUND_SECONDS - (time.monotonic() - st.session_state.hack_started),
-        )
-        st.metric("Time Left", f"{remaining:04.1f}s")
-
-    draw()
-
-
 def main():
     st.write("# 🔐 Terminal Password Decryption Game")
     st.caption("Find the answer to the question hidden among the terminal noise.")
 
     save_data = get_save_data()
-    if "hack_password" not in st.session_state or "hack_started" not in st.session_state:
+    if "hack_password" not in st.session_state:
         init_hacking()
 
     attempts_col, score_col, time_col, reset_col = st.columns([1, 1, 1.2, 1])
@@ -181,7 +151,7 @@ def main():
     )
     score_col.metric("Saved Score", save_data.check_score())
     with time_col:
-        render_countdown()
+        nierva_timer.render_timer_display("hacking", label="Decryption Time")
 
     main_col, log_col = st.columns([1.2, 1])
     with main_col:

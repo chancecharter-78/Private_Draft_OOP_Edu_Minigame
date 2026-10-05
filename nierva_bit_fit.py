@@ -137,23 +137,8 @@ def lose_round(message):
     nierva_progression.record_failure("Bit Fit")
 
 
-def check_round_timeout():
-    if st.session_state.bf_over:
-        return False
-    elapsed = time.monotonic() - st.session_state.bf_reveal_started
-    final_reveal = max(stage[2] for stage in st.session_state.bf_answer_reveal_stages if stage)
-    if elapsed < final_reveal + 5:
-        return False
-    lose_round(
-        f"⌛ Time's up! The answer was {st.session_state.bf_answer}."
-    )
-    return True
-
-
 def submit_round():
     if st.session_state.bf_over:
-        return
-    if check_round_timeout():
         return
 
     active_indexes = [
@@ -235,8 +220,6 @@ def render_cipher_columns():
 
     @st.fragment(run_every=run_every)
     def draw():
-        if check_round_timeout():
-            st.rerun(scope="app")
         draw_cipher_columns()
 
     draw()

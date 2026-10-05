@@ -39,7 +39,7 @@ def main():
                              before switching to a different minigame.
         2. Bit Fit Minigame - This minigame presents a set of columns that contain multiple answers
                              to a question. The player must be able cycle through and match all the
-                             correct letters to form the word answer within the time limit. The more
+                             correct letters to form the word answer. The more
                              you complete, the harder the each round becomes. This can last about 5-8
                              rounds before switching to a different minigame.
         3. Terminal Hacking - This minigame presents a block of hashed text with words hidden

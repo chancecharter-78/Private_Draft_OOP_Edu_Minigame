@@ -1,5 +1,4 @@
 import random
-import time
 from html import escape
 
 import streamlit as st
@@ -10,7 +9,6 @@ from nierva_save_data import ensure_current_save_data
 
 
 TOTAL_SLIDERS = 5
-SLIDER_TIMES = (15, 12, 12, 8, 8)
 MINIMUM_WINS = TOTAL_SLIDERS // 2 + 1
 
 
@@ -43,7 +41,6 @@ def set_slider_question():
     st.session_state.slider_question = question
     st.session_state.slider_choices = choices
     st.session_state.slider_correct_index = choices.index(question["correct_answer"])
-    st.session_state.slider_round_started = time.monotonic()
 
 
 def step_marker():
@@ -81,7 +78,7 @@ def end_slider():
     nierva_progression.record_failure("Slider")
 
 
-def finish_round(won, reason=""):
+def finish_round(won):
     level = st.session_state.slider_level
     question = st.session_state.slider_question
     choices = st.session_state.slider_choices
@@ -105,7 +102,6 @@ def finish_round(won, reason=""):
         st.session_state.slider_msg = f"✅ Correct! Level {level} cleared."
     else:
         st.session_state.slider_msg = (
-            f"⌛ Time expired on level {level}." if reason else
             f"❌ Incorrect choice. The answer was {question['correct_answer']}."
         )
 
@@ -122,21 +118,8 @@ def finish_round(won, reason=""):
 def lock_slider():
     if st.session_state.slider_over:
         return
-    if check_round_timeout():
-        return
     selected_index = min(int(st.session_state.slider_position // 25), 3)
     finish_round(selected_index == st.session_state.slider_correct_index)
-
-
-def check_round_timeout():
-    if st.session_state.slider_over:
-        return False
-    limit = SLIDER_TIMES[st.session_state.slider_level - 1]
-    elapsed = time.monotonic() - st.session_state.slider_round_started
-    if elapsed < limit:
-        return False
-    finish_round(False, reason="timeout")
-    return True
 
 
 def render_slider_bar(choices, position):
@@ -167,8 +150,6 @@ def render_active_slider():
 
     @st.fragment(run_every=run_every)
     def draw():
-        if check_round_timeout():
-            st.rerun()
         step_marker()
         render_slider_bar(
             st.session_state.slider_choices,
@@ -187,7 +168,7 @@ def main():
         init_slider()
 
     reset_col, score_col, timer_col, new_game_col = st.columns([1, 1, 1.2, 1])
-    if new_game_col.button("New Game"):
+    if new_game_col.button("New Game", key="slider_new_game_top"):
         init_slider()
         st.rerun()
     reset_col.metric(
@@ -206,8 +187,7 @@ def main():
 
     if not st.session_state.slider_over:
         level = st.session_state.slider_level
-        time_limit = SLIDER_TIMES[level - 1]
-        st.caption(f"Current Level {level} | {time_limit} seconds")
+        st.caption(f"Current Level {level}")
         question = st.session_state.slider_question
         st.info(question["question"])
         st.caption(f"Subject: {question['game']} | Difficulty: {question['difficulty']}")
@@ -228,7 +208,7 @@ def main():
             st.success(st.session_state.slider_msg)
     else:
         st.error(st.session_state.slider_msg)
-        st.button("New Game", on_click=init_slider)
+        st.button("New Game", on_click=init_slider, key="slider_new_game_after_game")
 
 
 if __name__ == "__main__":
