@@ -181,35 +181,33 @@ def submit_round():
 
 def draw_cipher_columns():
     elapsed = time.monotonic() - st.session_state.bf_reveal_started
-    for start in range(0, st.session_state.bf_cols, 5):
-        indexes = range(start, min(start + 5, st.session_state.bf_cols))
-        columns = st.columns(len(indexes))
-        for column, index in zip(columns, indexes):
-            active = st.session_state.bf_active[index]
-            if not active:
-                column.markdown("### -")
-            else:
-                dash_start, hash_start, reveal_time = (
-                    st.session_state.bf_answer_reveal_stages[index]
-                )
-                if elapsed < dash_start:
-                    displayed_text = " "
-                elif elapsed < hash_start:
-                    displayed_text = "-"
-                elif elapsed < reveal_time:
-                    displayed_text = "#"
-                else:
-                    displayed_text = st.session_state.bf_answer_letters[index]
-                column.markdown(f"### {displayed_text}")
-
-            column.button(
-                st.session_state.bf_player[index],
-                key=f"bf_cycle_{index}",
-                on_click=cycle_letter,
-                args=(index,),
-                disabled=not active or st.session_state.bf_over,
-                width="stretch",
+    columns = st.columns(st.session_state.bf_cols)
+    for index, column in enumerate(columns):
+        active = st.session_state.bf_active[index]
+        if not active:
+            column.markdown("### -")
+        else:
+            dash_start, hash_start, reveal_time = (
+                st.session_state.bf_answer_reveal_stages[index]
             )
+            if elapsed < dash_start:
+                displayed_text = " "
+            elif elapsed < hash_start:
+                displayed_text = "-"
+            elif elapsed < reveal_time:
+                displayed_text = "#"
+            else:
+                displayed_text = st.session_state.bf_answer_letters[index]
+            column.markdown(f"### {displayed_text}")
+
+        column.button(
+            st.session_state.bf_player[index],
+            key=f"bf_cycle_{index}",
+            on_click=cycle_letter,
+            args=(index,),
+            disabled=not active or st.session_state.bf_over,
+            width="stretch",
+        )
 
 
 def render_cipher_columns():

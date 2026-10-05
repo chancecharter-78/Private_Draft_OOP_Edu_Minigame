@@ -73,21 +73,6 @@ def update_marker():
     st.session_state.slider_direction = direction
 
 
-def step_marker():
-    if st.session_state.get("slider_over", True):
-        return
-    update_marker()
-    speed = 2 + st.session_state.slider_level * 2
-    position, direction = advance_position(
-        st.session_state.slider_position,
-        st.session_state.slider_direction,
-        speed,
-        0.1,
-    )
-    st.session_state.slider_position = position
-    st.session_state.slider_direction = direction
-
-
 def end_slider():
     if st.session_state.slider_wins >= MINIMUM_WINS:
         elapsed = nierva_timer.stop_timer("slider")
@@ -195,15 +180,9 @@ def render_completed_slider_history():
 
 
 def render_slider_controls():
-    stop_col, tick_col = st.columns(2)
-    stop_col.button(
+    st.button(
         "🛑 STOP SLIDER (LMB)",
         on_click=lock_slider,
-        width="stretch",
-    )
-    tick_col.button(
-        "⏩ Tick Marker Movement",
-        on_click=step_marker,
         width="stretch",
     )
 
