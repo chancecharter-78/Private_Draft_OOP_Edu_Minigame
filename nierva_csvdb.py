@@ -15,6 +15,29 @@ def get_schema():
     return {"required_columns": REQUIRED_COLUMNS, "optional_columns": ()}
 
 
+def get_csv_template():
+    return (
+        "game,question,correct answer,wrong answer 1,wrong answer 2,"
+        "wrong answer 3,difficulty\n"
+        "Science,Which planet is known as the Red Planet?,MARS,VENUS,"
+        "JUPITER,MERCURY,Easy\n"
+    )
+
+
+def get_ai_prompt():
+    return (
+        "Create educational quiz questions as raw CSV only. Use exactly this header:\n"
+        "game,question,correct answer,wrong answer 1,wrong answer 2,"
+        "wrong answer 3,difficulty\n\n"
+        "Add one question per row. Include a subject in game, a concise question, "
+        "one correct answer, three different wrong answers, and a difficulty "
+        "(for example Easy, Medium, or Hard). Every answer must be a distinct "
+        "A-Z word with no spaces, numbers, or symbols and no more than 12 letters. "
+        "Quote any CSV field containing commas, quotation marks, or line breaks. "
+        "Do not include markdown fences or text outside the CSV."
+    )
+
+
 def validate_csv(csv_text):
     return validate_question_csv(csv_text)
 
@@ -32,10 +55,11 @@ def main():
         "Your question sets are private to your account. Download a CSV to share a copy "
         "with another player."
     )
-    st.caption("Required columns: " + ", ".join(get_schema()["required_columns"]))
-    st.caption(
-        "Answers must be different A-Z words with no more than 12 letters."
-    )
+    with st.expander("CSV format and AI prompt"):
+        st.markdown("Use this exact header followed by one question per row:")
+        st.code(get_csv_template(), language="csv")
+        st.markdown("Copy this prompt into an AI tool to generate a compatible CSV:")
+        st.code(get_ai_prompt(), language="text")
 
     username = st.session_state.username
     question_sets = list_question_sets(username)
