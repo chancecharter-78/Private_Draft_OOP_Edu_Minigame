@@ -6,6 +6,7 @@ from unittest.mock import patch
 import nierva_bit_fit
 import nierva_hacking
 import nierva_save_data
+import nierva_slider
 import nierva_timer
 
 
@@ -98,6 +99,14 @@ class PlayerDataTests(unittest.TestCase):
 
 
 class GameRuleTests(unittest.TestCase):
+    def test_slider_position_uses_elapsed_time_not_frame_count(self):
+        one_second = nierva_slider.advance_position(50, 1, 4, 1)
+        ten_frames = (50, 1)
+        for _ in range(10):
+            ten_frames = nierva_slider.advance_position(*ten_frames, 4, 0.1)
+        self.assertAlmostEqual(one_second[0], ten_frames[0])
+        self.assertEqual(one_second[1], ten_frames[1])
+
     def test_bit_fit_points_use_reveal_tiers(self):
         self.assertEqual(nierva_bit_fit.calculate_points(2, 0, 8), 600)
         self.assertEqual(nierva_bit_fit.calculate_points(2, 3, 8), 500)

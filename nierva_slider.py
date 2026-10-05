@@ -1,4 +1,5 @@
 import random
+import time
 from html import escape
 
 import streamlit as st
@@ -28,6 +29,7 @@ def init_slider():
     st.session_state.slider_direction = 1
     st.session_state.slider_over = False
     st.session_state.slider_msg = ""
+    st.session_state.slider_last_update = time.monotonic()
     nierva_timer.start_timer("slider")
     set_slider_question()
 
@@ -43,19 +45,47 @@ def set_slider_question():
     st.session_state.slider_correct_index = choices.index(question["correct_answer"])
 
 
+def advance_position(position, direction, speed, elapsed):
+    phase = position if direction > 0 else 200 - position
+    phase = (phase + speed * 10 * elapsed) % 200
+    if phase < 100:
+        return phase, 1
+    return 200 - phase, -1
+
+
+def update_marker():
+    now = time.monotonic()
+    previous_update = st.session_state.get("slider_last_update", now)
+    elapsed = now - previous_update
+    st.session_state.slider_last_update = now
+
+    if st.session_state.get("slider_over", True):
+        return
+
+    speed = 2 + st.session_state.slider_level * 2
+    position, direction = advance_position(
+        st.session_state.slider_position,
+        st.session_state.slider_direction,
+        speed,
+        elapsed,
+    )
+    st.session_state.slider_position = position
+    st.session_state.slider_direction = direction
+
+
 def step_marker():
     if st.session_state.get("slider_over", True):
         return
+    update_marker()
     speed = 2 + st.session_state.slider_level * 2
-    position = st.session_state.slider_position + st.session_state.slider_direction * speed
-    if position >= 100:
-        st.session_state.slider_position = 100
-        st.session_state.slider_direction = -1
-    elif position <= 0:
-        st.session_state.slider_position = 0
-        st.session_state.slider_direction = 1
-    else:
-        st.session_state.slider_position = position
+    position, direction = advance_position(
+        st.session_state.slider_position,
+        st.session_state.slider_direction,
+        speed,
+        0.1,
+    )
+    st.session_state.slider_position = position
+    st.session_state.slider_direction = direction
 
 
 def end_slider():
@@ -118,6 +148,7 @@ def finish_round(won):
 def lock_slider():
     if st.session_state.slider_over:
         return
+    update_marker()
     selected_index = min(int(st.session_state.slider_position // 25), 3)
     finish_round(selected_index == st.session_state.slider_correct_index)
 
@@ -145,18 +176,51 @@ def render_slider_bar(choices, position):
     )
 
 
+@st.fragment(run_every=0.1)
 def render_active_slider():
-    run_every = 0.1 if not st.session_state.slider_over else None
+    update_marker()
+    st.metric("Game Time", nierva_timer.format_time(nierva_timer.get_elapsed("slider")))
+    render_slider_bar(
+        st.session_state.slider_choices,
+        st.session_state.slider_position,
+    )
 
-    @st.fragment(run_every=run_every)
-    def draw():
-        step_marker()
-        render_slider_bar(
-            st.session_state.slider_choices,
-            st.session_state.slider_position,
-        )
 
-    draw()
+def render_completed_slider_history():
+    for completed in st.session_state.slider_history:
+        result = "cleared" if completed["won"] else "missed"
+        st.caption(f"Level {completed['level']} {result}")
+        st.caption(completed["question"])
+        render_slider_bar(completed["choices"], completed["position"])
+
+
+def render_slider_controls():
+    stop_col, tick_col = st.columns(2)
+    stop_col.button(
+        "🛑 STOP SLIDER (LMB)",
+        on_click=lock_slider,
+        width="stretch",
+    )
+    tick_col.button(
+        "⏩ Tick Marker Movement",
+        on_click=step_marker,
+        width="stretch",
+    )
+
+
+def render_game_over():
+    level_col, score_col, timer_col = st.columns(3)
+    level_col.metric(
+        "Level",
+        f"{st.session_state.slider_level}/{TOTAL_SLIDERS}",
+    )
+    score_col.metric("Saved Score", get_save_data().check_score())
+    timer_col.metric(
+        "Game Time",
+        nierva_timer.format_time(nierva_timer.get_elapsed("slider")),
+    )
+    st.error(st.session_state.slider_msg)
+    st.button("New Game", on_click=init_slider, key="slider_new_game_after_game")
 
 
 def main():
@@ -167,48 +231,27 @@ def main():
     if "slider_level" not in st.session_state:
         init_slider()
 
-    reset_col, score_col, timer_col, new_game_col = st.columns([1, 1, 1.2, 1])
+    level_col, score_col, new_game_col = st.columns([1, 1, 1])
+    level_col.metric("Level", f"{st.session_state.slider_level}/{TOTAL_SLIDERS}")
+    score_col.metric("Saved Score", save_data.check_score())
     if new_game_col.button("New Game", key="slider_new_game_top"):
         init_slider()
         st.rerun()
-    reset_col.metric(
-        "Level",
-        f"{st.session_state.slider_level}/{TOTAL_SLIDERS}",
-    )
-    score_col.metric("Saved Score", save_data.check_score())
-    with timer_col:
-        nierva_timer.render_timer_display("slider", label="Game Time")
 
-    for completed in st.session_state.slider_history:
-        result = "cleared" if completed["won"] else "missed"
-        st.caption(f"Level {completed['level']} {result}")
-        st.caption(completed["question"])
-        render_slider_bar(completed["choices"], completed["position"])
+    render_completed_slider_history()
 
     if not st.session_state.slider_over:
         level = st.session_state.slider_level
-        st.caption(f"Current Level {level}")
         question = st.session_state.slider_question
+        st.caption(f"Current Level {level}")
         st.info(question["question"])
         st.caption(f"Subject: {question['game']} | Difficulty: {question['difficulty']}")
         render_active_slider()
-
-        stop_col, tick_col = st.columns(2)
-        stop_col.button(
-            "🛑 STOP SLIDER (LMB)",
-            on_click=lock_slider,
-            width="stretch",
-        )
-        tick_col.button(
-            "⏩ Tick Marker Movement",
-            on_click=step_marker,
-            width="stretch",
-        )
+        render_slider_controls()
         if st.session_state.slider_msg:
             st.success(st.session_state.slider_msg)
     else:
-        st.error(st.session_state.slider_msg)
-        st.button("New Game", on_click=init_slider, key="slider_new_game_after_game")
+        render_game_over()
 
 
 if __name__ == "__main__":
