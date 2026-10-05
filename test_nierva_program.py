@@ -27,10 +27,15 @@ class QuestionDataTests(unittest.TestCase):
             nierva_save_data.parse_question_csv(csv_text)
 
     def test_rejects_long_and_non_letter_answers(self):
-        with self.assertRaisesRegex(ValueError, "longer than 12"):
+        with self.assertRaisesRegex(ValueError, "longer than 10"):
             nierva_save_data.parse_question_csv(VALID_CSV.replace("MARS", "SUPERCALIFRAG"))
         with self.assertRaisesRegex(ValueError, "only A-Z"):
             nierva_save_data.parse_question_csv(VALID_CSV.replace("MARS", "M4RS"))
+
+    def test_accepts_answers_with_ten_letters(self):
+        csv_text = VALID_CSV.replace("MARS", "ABCDEFGHIJ")
+        questions = nierva_save_data.parse_question_csv(csv_text)
+        self.assertEqual(questions[0]["correct_answer"], "ABCDEFGHIJ")
 
     def test_game_question_file_loads(self):
         self.assertTrue(nierva_save_data.parse_question_csv(

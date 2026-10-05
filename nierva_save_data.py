@@ -26,7 +26,7 @@ ANSWER_COLUMNS = (
     "wrong answer 2",
     "wrong answer 3",
 )
-MAX_ANSWER_LENGTH = 12
+MAX_ANSWER_LENGTH = 10
 PASSWORD_ITERATIONS = 310_000
 
 

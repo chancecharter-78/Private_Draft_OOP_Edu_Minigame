@@ -32,7 +32,7 @@ def get_ai_prompt():
         "Add one question per row. Include a subject in game, a concise question, "
         "one correct answer, three different wrong answers, and a difficulty "
         "(for example Easy, Medium, or Hard). Every answer must be a distinct "
-        "A-Z word with no spaces, numbers, or symbols and no more than 12 letters. "
+        "A-Z word with no spaces, numbers, or symbols and no more than 10 letters. "
         "Quote any CSV field containing commas, quotation marks, or line breaks. "
         "Do not include markdown fences or text outside the CSV."
     )
@@ -58,6 +58,15 @@ def main():
     with st.expander("CSV format and AI prompt"):
         st.markdown("Use this exact header followed by one question per row:")
         st.code(get_csv_template(), language="csv")
+        st.markdown(
+            "Restrictions:\n"
+            "- Include every required column in the header.\n"
+            "- Give each question one correct answer and three different wrong answers.\n"
+            "- Answers may contain only English letters A-Z: no spaces, numbers, or symbols.\n"
+            "- Each answer can be at most 10 letters long.\n"
+            "- Quote CSV fields that contain commas, quotes, or line breaks.\n"
+            "- Use one question per row."
+        )
         st.markdown("Copy this prompt into an AI tool to generate a compatible CSV:")
         st.code(get_ai_prompt(), language="text")
 
