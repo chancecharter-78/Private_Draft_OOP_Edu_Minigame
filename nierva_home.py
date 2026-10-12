@@ -11,7 +11,7 @@ def reset_save_data():
 def main():
     st.markdown(
         """
-        # Unnamed Educational Minigame Prototype 🎮
+        # Voiding Boredom Alpha V3 🎮
         Overview
 
         DISCLAIMER [!!!] : This AI-Assisted project contains fixes and improvements MADE BY AI ( Github Copilot ).

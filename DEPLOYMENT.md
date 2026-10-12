@@ -1,24 +1,23 @@
-# Supabase and Linux deployment
+# Supabase deployment
 
-The app connects directly to Supabase PostgreSQL from the Streamlit server. The
-database URL is a server secret; never put it in browser code, commit it, or
-expose it to users. Use the Supabase **Session pooler** connection string for a
-long-running Linux server and require SSL.
+The app stores accounts, scores, completed rounds, and question sets directly
+in Supabase PostgreSQL. It does not use a local SQLite database. The database
+URL is a server secret; never put it in browser code, commit it, or expose it
+to users.
 
-## Prepare Supabase
+## Initialize the Supabase database
 
 1. Create a Supabase project and keep its database password private.
-2. Open the Supabase SQL Editor and run
+2. Open the Supabase SQL Editor and run the schema setup file once:
    [`supabase/migrations/20261011000000_create_game_tables.sql`](./supabase/migrations/20261011000000_create_game_tables.sql).
-3. In the project Connect dialog, copy the Session pooler URI and replace its
-   password placeholder with the database password. The URI must include
-   `sslmode=require`.
+   This creates the tables and indexes the app needs; it is not a data import.
+3. In the project's **Connect** dialog, copy a PostgreSQL connection URI and
+   make sure it includes `sslmode=require`.
+
+New accounts and game progress are written straight to this Supabase database.
+No SQLite setup or SQLite-to-Supabase import is needed.
 
 ## Deploy on Streamlit Community Cloud
-
-First, run the migration from the Supabase SQL Editor as described above. In
-Supabase's **Connect** dialog, copy the PostgreSQL connection URI and make sure
-it includes `sslmode=require`.
 
 In Streamlit Community Cloud, open the deployed app's menu, choose **Settings →
 Secrets**, and add the URI as a TOML string:
@@ -34,6 +33,7 @@ filesystem.
 
 ## Install on a persistent Linux host
 
+Use this option only if hosting Streamlit on your own persistent Linux server.
 Copy the repository to `/opt/nierva-game` on a Linux server with Python 3.10 or
 newer, then run:
 
@@ -69,23 +69,5 @@ sudo systemctl status nierva-app
 The service listens only on `127.0.0.1:8501`. Put it behind a TLS-enabled
 reverse proxy (for example, Nginx or Caddy) before making it reachable on the
 internet. Review firewall rules so the database and Streamlit port are not
-publicly exposed.
-
-## Move existing local SQLite data
-
-After applying the schema and installing dependencies, copy the existing
-`nierva_players.sqlite3` file to the server without committing it. Run the
-one-time importer before starting the app:
-
-```sh
-sudo -u nierva env SUPABASE_DB_URL='postgresql://...' \
-  /opt/nierva-game/.venv/bin/python \
-  /opt/nierva-game/scripts/migrate_sqlite_to_supabase.py \
-  /opt/nierva-game/nierva_players.sqlite3
-```
-
-The importer refuses to write if the Supabase `players` table is not empty, and
-copies accounts, saved question sets, and clear history in one database
-transaction. Keep the local file as a backup until the migrated accounts and
-scores have been verified. Do not place the connection URI directly in shell
-history on a shared server; use a protected environment file instead.
+publicly exposed. Do not place the connection URI directly in shell history on
+a shared server; use the protected environment file instead.
