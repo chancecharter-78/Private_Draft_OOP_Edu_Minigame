@@ -8,6 +8,10 @@ import nierva_timer
 from nierva_save_data import ensure_current_save_data
 
 
+CHOICE_CHARACTERS = string.ascii_uppercase + string.digits + "."
+MAX_COLUMNS_PER_ROW = 10
+
+
 def get_save_data():
     st.session_state.save_data = ensure_current_save_data(
         st.session_state.get("save_data")
@@ -53,45 +57,64 @@ def make_reveal_schedules(letter_count):
     return schedules
 
 
-def setup_round():
-    previous_question = st.session_state.get("bf_question", {}).get("question")
-    question = get_save_data().get_random_question(previous_question)
-    answer = question["correct_answer"]
-    column_count = max(10, len(answer))
-    active_columns = random_active_columns(column_count, len(answer))
-    option_count = min(3 + st.session_state.bf_round - 1, 10)
-
+def create_cipher(answer, round_number):
+    cipher_answer = answer.replace(" ", "")
+    column_count = max(10, len(cipher_answer))
+    active_columns = random_active_columns(column_count, len(cipher_answer))
+    option_count = min(3 + round_number - 1, 10)
     options = []
     player_letters = []
     answer_letters = [None] * column_count
     active_indexes = [index for index, active in enumerate(active_columns) if active]
 
     for index, active in enumerate(active_columns):
-        correct_letter = answer[active_indexes.index(index)] if active else None
+        correct_letter = cipher_answer[active_indexes.index(index)] if active else None
         if active:
             answer_letters[index] = correct_letter
-            other_letters = [letter for letter in string.ascii_uppercase if letter != correct_letter]
+            other_letters = [
+                character
+                for character in CHOICE_CHARACTERS
+                if character != correct_letter
+            ]
             choices = [correct_letter] + random.sample(other_letters, option_count - 1)
         else:
-            choices = random.sample(list(string.ascii_uppercase), option_count)
+            choices = random.sample(list(CHOICE_CHARACTERS), option_count)
         random.shuffle(choices)
         options.append(choices)
         player_letters.append(random.choice([letter for letter in choices if letter != correct_letter]))
 
-    schedules = make_reveal_schedules(len(answer))
+    schedules = make_reveal_schedules(len(cipher_answer))
     random.shuffle(active_indexes)
     reveal_stages = [None] * column_count
     for index, schedule in zip(active_indexes, schedules):
         reveal_stages[index] = schedule
 
+    return {
+        "cipher_answer": cipher_answer,
+        "column_count": column_count,
+        "active_columns": active_columns,
+        "options": options,
+        "player_letters": player_letters,
+        "answer_letters": answer_letters,
+        "reveal_stages": reveal_stages,
+    }
+
+
+def setup_round():
+    previous_question = st.session_state.get("bf_question", {}).get("question")
+    question = get_save_data().get_random_question(previous_question)
+    answer = question["correct_answer"]
+    cipher = create_cipher(answer, st.session_state.bf_round)
+
     st.session_state.bf_question = question
     st.session_state.bf_answer = answer
-    st.session_state.bf_cols = column_count
-    st.session_state.bf_active = active_columns
-    st.session_state.bf_options = options
-    st.session_state.bf_player = player_letters
-    st.session_state.bf_answer_letters = answer_letters
-    st.session_state.bf_answer_reveal_stages = reveal_stages
+    st.session_state.bf_cipher_answer = cipher["cipher_answer"]
+    st.session_state.bf_cols = cipher["column_count"]
+    st.session_state.bf_active = cipher["active_columns"]
+    st.session_state.bf_options = cipher["options"]
+    st.session_state.bf_player = cipher["player_letters"]
+    st.session_state.bf_answer_letters = cipher["answer_letters"]
+    st.session_state.bf_answer_reveal_stages = cipher["reveal_stages"]
     st.session_state.bf_reveal_started = time.monotonic()
     st.session_state.bf_msg = ""
 
@@ -144,7 +167,7 @@ def submit_round():
         index for index, active in enumerate(st.session_state.bf_active) if active
     ]
     answer = "".join(st.session_state.bf_player[index] for index in active_indexes)
-    if answer != st.session_state.bf_answer:
+    if answer != st.session_state.bf_cipher_answer:
         elapsed = nierva_timer.stop_timer("bit_fit")
         lose_round(
             f"❌ The letters decoded to {answer or '(empty)'}, not "
@@ -180,33 +203,39 @@ def submit_round():
 
 def draw_cipher_columns():
     elapsed = time.monotonic() - st.session_state.bf_reveal_started
-    columns = st.columns(st.session_state.bf_cols)
-    for index, column in enumerate(columns):
-        active = st.session_state.bf_active[index]
-        if not active:
-            column.markdown("### -")
-        else:
-            dash_start, hash_start, reveal_time = (
-                st.session_state.bf_answer_reveal_stages[index]
-            )
-            if elapsed < dash_start:
-                displayed_text = " "
-            elif elapsed < hash_start:
-                displayed_text = "-"
-            elif elapsed < reveal_time:
-                displayed_text = "#"
-            else:
-                displayed_text = st.session_state.bf_answer_letters[index]
-            column.markdown(f"### {displayed_text}")
-
-        column.button(
-            st.session_state.bf_player[index],
-            key=f"bf_cycle_{index}",
-            on_click=cycle_letter,
-            args=(index,),
-            disabled=not active or st.session_state.bf_over,
-            width="stretch",
+    for start in range(0, st.session_state.bf_cols, MAX_COLUMNS_PER_ROW):
+        row_size = min(
+            MAX_COLUMNS_PER_ROW,
+            st.session_state.bf_cols - start,
         )
+        columns = st.columns(row_size)
+        for offset, column in enumerate(columns):
+            index = start + offset
+            active = st.session_state.bf_active[index]
+            if not active:
+                column.markdown("### -")
+            else:
+                dash_start, hash_start, reveal_time = (
+                    st.session_state.bf_answer_reveal_stages[index]
+                )
+                if elapsed < dash_start:
+                    displayed_text = " "
+                elif elapsed < hash_start:
+                    displayed_text = "-"
+                elif elapsed < reveal_time:
+                    displayed_text = "#"
+                else:
+                    displayed_text = st.session_state.bf_answer_letters[index]
+                column.markdown(f"### {displayed_text}")
+
+            column.button(
+                st.session_state.bf_player[index],
+                key=f"bf_cycle_{index}",
+                on_click=cycle_letter,
+                args=(index,),
+                disabled=not active or st.session_state.bf_over,
+                width="stretch",
+            )
 
 
 @st.fragment(run_every=0.25)
@@ -220,7 +249,10 @@ def render_live_bit_fit():
 
 def main():
     st.write("# 💻 Bit Fit Binary Matching Game")
-    st.caption("Choose a letter in each active column to decode the answer.")
+    st.caption(
+        "Choose a character in each active column to decode the answer. "
+        "Spaces are word breaks and are not selectable."
+    )
 
     save_data = get_save_data()
     if "bf_round" not in st.session_state or "bf_options" not in st.session_state:
@@ -238,7 +270,8 @@ def main():
     st.info(question["question"])
     st.caption(
         f"Subject: {question['game']} | Difficulty: {question['difficulty']} | "
-        f"{len(st.session_state.bf_options[0])} choices per column. Active columns read left to right."
+        f"{len(st.session_state.bf_options[0])} choices per column. "
+        "Active columns read left to right."
     )
 
     st.markdown("### 🔎 Letter Cipher Columns:")

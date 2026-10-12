@@ -66,7 +66,7 @@ def main():
     if st.session_state.pop("save_reset_notice", False):
         st.success("Save Data reset back to initial Set 1 state!")
 
-    st.subheader("🏆 Local Leaderboard")
+    st.subheader("🏆 Shared Leaderboard")
     leaderboard = get_leaderboard()
     if leaderboard:
         st.dataframe(leaderboard, hide_index=True, width="stretch")

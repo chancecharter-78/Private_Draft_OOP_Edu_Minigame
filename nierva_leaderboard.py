@@ -4,8 +4,8 @@ from nierva_save_data import get_leaderboard
 
 
 def main():
-    st.title("🏆 Local Leaderboard")
-    st.caption("Scores are stored in the local SQLite database on this computer.")
+    st.title("🏆 Shared Leaderboard")
+    st.caption("Scores are stored in the shared Supabase database.")
 
     players = get_leaderboard(limit=100)
     if players:

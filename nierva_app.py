@@ -1,20 +1,20 @@
 import streamlit as st
 
-import nierva_about
-import nierva_bit_fit
-import nierva_csvdb
-import nierva_hacking
 import nierva_home
+import nierva_about
+import nierva_source
+import nierva_csvdb
+import nierva_bit_fit
+import nierva_slider
+import nierva_hacking
 import nierva_leaderboard
 import nierva_progression
-import nierva_slider
-import nierva_source
+
 from nierva_save_data import (
     authenticate_player,
     clean_username,
     register_player,
 )
-
 
 GAME_PAGES = {
     "Slider": nierva_slider.main,
@@ -29,7 +29,6 @@ INFO_PAGES = {
     "Question Sets": nierva_csvdb.main,
 }
 
-
 def init():
     st.session_state.setdefault("page", "Homepage")
     st.session_state.setdefault("project", False)
@@ -41,10 +40,9 @@ def init():
 
 def draw_style():
     st.set_page_config(
-        page_title="Educational Minigames Prototype",
+        page_title="Voiding Boredom V3.1 Prototype",
         page_icon="🎮",
-        layout="centered",
-    )
+        layout="centered",)
     st.markdown(
         """
         <style>
@@ -55,24 +53,13 @@ def draw_style():
         unsafe_allow_html=True,
     )
 
-
 def sign_in():
-    st.title("Welcome to the Educational Minigames Prototype")
-    st.caption("Create an account or sign in to save your local game progress.")
+    st.title("Account Login", text_alignment="center")
+    st.header("Welcome to Voiding Boredom V3.1 Alpha!")
+    st.caption("Create an account or sign in to save your game progress.")
+    st.session_state.setdefault("auth_view", "login")
 
-    create_tab, login_tab = st.tabs(["Create account", "Sign in"])
-    with create_tab:
-        with st.form("new_player"):
-            st.text_input("Username", key="new_username", max_chars=20)
-            st.text_input(
-                "Password (at least 8 characters)",
-                type="password",
-                key="new_password",
-                max_chars=128,
-            )
-            st.form_submit_button("Create account", on_click=create_account)
-
-    with login_tab:
+    if st.session_state.auth_view == "login":
         with st.form("returning_player"):
             st.text_input("Username", key="login_username", max_chars=20)
             st.text_input(
@@ -81,11 +68,49 @@ def sign_in():
                 key="login_password",
                 max_chars=128,
             )
-            st.form_submit_button("Sign in", on_click=log_in)
+            login_col, register_col = st.columns(2)
+            with login_col:
+                st.form_submit_button("Log In", on_click=log_in)
+            with register_col, st.container(
+                horizontal=True,
+                horizontal_alignment="right",
+            ):
+                st.form_submit_button(
+                    "Register now",
+                    on_click=switch_auth_view,
+                    type="tertiary",
+                    args=("register",),
+                )
+    else:
+        with st.form("new_player"):
+            st.text_input("Username", key="new_username", max_chars=20)
+            st.text_input(
+                "Password (at least 8 characters)",
+                type="password",
+                key="new_password",
+                max_chars=128,
+            )
+            login_col, register_col = st.columns(2)
+            with login_col:
+                st.form_submit_button("Log In", on_click=log_in)
+            with register_col, st.container(
+                horizontal=True,
+                horizontal_alignment="right",
+            ):
+                with st.container(horizontal=True, horizontal_alignment="right"):
+                    st.form_submit_button(
+                        "Already have an account? Log In",
+                        type="tertiary",
+                        on_click=switch_auth_view,
+                        args=("login",),
+                    )
 
     if st.session_state.get("auth_error"):
         st.error(st.session_state.auth_error)
 
+def switch_auth_view(view):
+    st.session_state.auth_view = view
+    st.session_state.auth_error = ""
 
 def create_account():
     try:
@@ -102,19 +127,25 @@ def create_account():
     except ValueError as error:
         st.session_state.new_password = ""
         st.session_state.auth_error = str(error)
-
+    except RuntimeError as error:
+        st.session_state.new_password = ""
+        st.session_state.auth_error = str(error)
 
 def log_in():
-    save_data = authenticate_player(
-        st.session_state.login_username,
-        st.session_state.login_password,
-    )
+    try:
+        save_data = authenticate_player(
+            st.session_state.login_username,
+            st.session_state.login_password,
+        )
+    except RuntimeError as error:
+        st.session_state.login_password = ""
+        st.session_state.auth_error = str(error)
+        return
     st.session_state.login_password = ""
     if save_data is None:
         st.session_state.auth_error = "Username or password is incorrect."
         return
     start_session(save_data.player_name, save_data)
-
 
 def start_session(username, save_data):
     st.session_state["new_password"] = ""
@@ -124,17 +155,14 @@ def start_session(username, save_data):
     st.session_state.page = "Homepage"
     st.session_state.auth_error = ""
 
-
 def sign_out():
     st.session_state.clear()
-
 
 def set_page(page):
     if page in GAME_PAGES:
         nierva_progression.start_game(page)
         return
     st.session_state.page = page
-
 
 def start_minigames():
     current_game = st.session_state.get("flow_game")
@@ -145,10 +173,8 @@ def start_minigames():
     else:
         nierva_progression.start_game("Slider")
 
-
 def select_game():
     nierva_progression.start_game(st.session_state.nav_game)
-
 
 def load_page():
     page = st.session_state.get("page", "Homepage")
@@ -156,7 +182,6 @@ def load_page():
         GAME_PAGES[page]()
     else:
         INFO_PAGES.get(page, nierva_home.main)()
-
 
 def main():
     draw_style()
@@ -229,7 +254,6 @@ def main():
     if message:
         st.success(message)
         st.session_state.switch_message = ""
-
 
 if __name__ == "__main__":
     main()

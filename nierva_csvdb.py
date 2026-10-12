@@ -24,15 +24,34 @@ def get_csv_template():
     )
 
 
+def get_csv_example():
+    return [
+        {"CSV field": "game", "Example": "Science"},
+        {"CSV field": "question", "Example": "Which planet is known as the Red Planet?"},
+        {"CSV field": "correct answer", "Example": "MARS"},
+        {"CSV field": "wrong answer 1", "Example": "VENUS"},
+        {"CSV field": "wrong answer 2", "Example": "JUPITER"},
+        {"CSV field": "wrong answer 3", "Example": "MERCURY"},
+        {"CSV field": "difficulty", "Example": "Easy"},
+    ]
+
+
 def get_ai_prompt():
     return (
-        "Create educational quiz questions as raw CSV only. Use exactly this header:\n"
-        "game,question,correct answer,wrong answer 1,wrong answer 2,"
-        "wrong answer 3,difficulty\n\n"
+        "Create educational quiz questions as raw CSV only. Use these columns "
+        "in this exact order:\n"
+        "- game\n"
+        "- question\n"
+        "- correct answer\n"
+        "- wrong answer 1\n"
+        "- wrong answer 2\n"
+        "- wrong answer 3\n"
+        "- difficulty\n\n"
         "Add one question per row. Include a subject in game, a concise question, "
         "one correct answer, three different wrong answers, and a difficulty "
         "(for example Easy, Medium, or Hard). Every answer must be a distinct "
-        "A-Z word with no spaces, numbers, or symbols and no more than 10 letters. "
+        "answer of no more than 32 characters using A-Z letters, 0-9 numbers, "
+        "spaces, and periods. Bit Fit treats spaces as word breaks. "
         "Quote any CSV field containing commas, quotation marks, or line breaks. "
         "Do not include markdown fences or text outside the CSV."
     )
@@ -56,14 +75,25 @@ def main():
         "with another player."
     )
     with st.expander("CSV format and AI prompt"):
-        st.markdown("Use this exact header followed by one question per row:")
-        st.code(get_csv_template(), language="csv", wrap_lines=True)
+        st.markdown(
+            "Each row in the CSV must use these columns in order. "
+            "This example is shown as a table so long fields remain easy to read:"
+        )
+        st.dataframe(get_csv_example(), hide_index=True, width="stretch")
+        st.download_button(
+            "Download CSV template",
+            data=get_csv_template(),
+            file_name="question_template.csv",
+            mime="text/csv",
+            width="stretch",
+        )
         st.markdown(
             "Restrictions:\n"
             "- Include every required column in the header.\n"
             "- Give each question one correct answer and three different wrong answers.\n"
-            "- Answers may contain only English letters A-Z: no spaces, numbers, or symbols.\n"
-            "- Each answer can be at most 10 letters long.\n"
+            "- Answers may contain A-Z letters, 0-9 numbers, spaces, and periods.\n"
+            "- Each answer can be at most 32 characters long.\n"
+            "- Bit Fit treats spaces as word breaks; numbers and periods are selectable.\n"
             "- Quote CSV fields that contain commas, quotes, or line breaks.\n"
             "- Use one question per row."
         )

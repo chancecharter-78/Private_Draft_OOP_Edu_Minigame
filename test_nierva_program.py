@@ -1,11 +1,15 @@
+import os
+import sqlite3
 import tempfile
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
 
 import nierva_bit_fit
 import nierva_hacking
 import nierva_save_data
+import psycopg
 import nierva_slider
 import nierva_timer
 
@@ -13,6 +17,75 @@ import nierva_timer
 VALID_CSV = """Game, Question ,Correct Answer,Wrong Answer 1,Wrong Answer 2,Wrong Answer 3,Difficulty
 Science,Sample question?,MARS,VENUS,JUPITER,MERCURY,Easy
 """
+SCIENCE_CSV_PATH = Path(__file__).with_name("test_data") / "science_question_set.csv"
+
+
+class SQLitePostgresAdapter:
+    def __init__(self, database_path):
+        self.database_path = database_path
+        self.connection = None
+
+    def __enter__(self):
+        self.connection = sqlite3.connect(self.database_path)
+        self.connection.execute("PRAGMA foreign_keys = ON")
+        self.connection.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS players (
+                username_key TEXT PRIMARY KEY,
+                username TEXT NOT NULL,
+                password_salt TEXT NOT NULL DEFAULT '',
+                password_hash TEXT NOT NULL DEFAULT '',
+                score INTEGER NOT NULL DEFAULT 0,
+                level INTEGER NOT NULL DEFAULT 1,
+                completed_rounds INTEGER NOT NULL DEFAULT 0,
+                active_question_set INTEGER
+            );
+            CREATE TABLE IF NOT EXISTS question_sets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username_key TEXT NOT NULL REFERENCES players(username_key)
+                    ON DELETE CASCADE,
+                name TEXT NOT NULL COLLATE NOCASE,
+                csv_text TEXT NOT NULL,
+                UNIQUE (username_key, name)
+            );
+            CREATE TABLE IF NOT EXISTS player_clears (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username_key TEXT NOT NULL REFERENCES players(username_key)
+                    ON DELETE CASCADE,
+                game TEXT NOT NULL,
+                level INTEGER NOT NULL,
+                points INTEGER NOT NULL,
+                details TEXT NOT NULL
+            );
+            """
+        )
+        return self
+
+    def __exit__(self, error_type, error, traceback):
+        if error_type is None:
+            self.connection.commit()
+        else:
+            self.connection.rollback()
+        self.connection.close()
+
+    def execute(self, statement, parameters=()):
+        try:
+            return self.connection.execute(statement.replace("%s", "?"), parameters)
+        except sqlite3.IntegrityError as error:
+            raise psycopg.errors.UniqueViolation(str(error)) from error
+
+
+@contextmanager
+def use_test_player_database(database_path):
+    with (
+        patch.dict(os.environ, {"SUPABASE_DB_URL": "postgresql://test"}),
+        patch.object(
+            nierva_save_data.psycopg,
+            "connect",
+            side_effect=lambda *args, **kwargs: SQLitePostgresAdapter(database_path),
+        ),
+    ):
+        yield
 
 
 class QuestionDataTests(unittest.TestCase):
@@ -26,11 +99,12 @@ class QuestionDataTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "all be different"):
             nierva_save_data.parse_question_csv(csv_text)
 
-    def test_rejects_long_and_non_letter_answers(self):
-        with self.assertRaisesRegex(ValueError, "longer than 10"):
-            nierva_save_data.parse_question_csv(VALID_CSV.replace("MARS", "SUPERCALIFRAG"))
-        with self.assertRaisesRegex(ValueError, "only A-Z"):
-            nierva_save_data.parse_question_csv(VALID_CSV.replace("MARS", "M4RS"))
+    def test_rejects_answers_over_limit_and_unsupported_characters(self):
+        too_long = "A" * (nierva_save_data.MAX_ANSWER_LENGTH + 1)
+        with self.assertRaisesRegex(ValueError, "longer than 32 characters"):
+            nierva_save_data.parse_question_csv(VALID_CSV.replace("MARS", too_long))
+        with self.assertRaisesRegex(ValueError, "spaces, and periods"):
+            nierva_save_data.parse_question_csv(VALID_CSV.replace("MARS", "MARS!"))
 
     def test_accepts_answers_with_ten_letters(self):
         csv_text = VALID_CSV.replace("MARS", "ABCDEFGHIJ")
@@ -42,12 +116,60 @@ class QuestionDataTests(unittest.TestCase):
             nierva_save_data.QUESTION_DATABASE_PATH.read_text(encoding="utf-8-sig")
         ))
 
+    def test_science_upload_csv_loads_for_all_game_answer_types(self):
+        csv_text = SCIENCE_CSV_PATH.read_text(encoding="utf-8-sig")
+        questions = nierva_save_data.parse_question_csv(csv_text)
+
+        self.assertEqual(len(questions), 12)
+        self.assertEqual(questions[2]["correct_answer"], "H2O")
+        self.assertEqual(questions[5]["correct_answer"], "13.8")
+        self.assertEqual(questions[9]["correct_answer"], "CARBON DIOXIDE")
+
+        cipher = nierva_bit_fit.create_cipher("LAW OF SEGREGATION", 1)
+        self.assertEqual(cipher["cipher_answer"], "LAWOFSEGREGATION")
+        self.assertEqual(sum(cipher["active_columns"]), len("LAWOFSEGREGATION"))
+        self.assertTrue(
+            any(" " in answer for question in questions for answer in (
+                question["correct_answer"],
+                *question["wrong_answers"],
+            ))
+        )
+
 
 class PlayerDataTests(unittest.TestCase):
+    def test_missing_database_secret_reports_streamlit_setup(self):
+        with (
+            patch.dict(os.environ, {"SUPABASE_DB_URL": ""}),
+            patch.object(nierva_save_data.st, "secrets", {}),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "Settings → Secrets"):
+                with nierva_save_data.open_player_database():
+                    pass
+
+    def test_uses_streamlit_secret_when_environment_variable_is_unset(self):
+        with (
+            patch.dict(os.environ, {"SUPABASE_DB_URL": ""}),
+            patch.object(
+                nierva_save_data.st,
+                "secrets",
+                {"SUPABASE_DB_URL": "postgresql://streamlit-secret"},
+            ),
+            patch.object(nierva_save_data.psycopg, "connect") as connect,
+        ):
+            connect.return_value.__enter__.return_value = object()
+
+            with nierva_save_data.open_player_database():
+                pass
+
+        connect.assert_called_once_with(
+            "postgresql://streamlit-secret",
+            connect_timeout=10,
+        )
+
     def test_username_uniqueness_password_and_saved_scores(self):
         with tempfile.TemporaryDirectory() as directory:
             database_path = Path(directory) / "players.sqlite3"
-            with patch.object(nierva_save_data, "PLAYER_DATABASE_PATH", database_path):
+            with use_test_player_database(database_path):
                 player, message = nierva_save_data.register_player(
                     "Test Player",
                     "correct horse battery",
@@ -78,7 +200,7 @@ class PlayerDataTests(unittest.TestCase):
     def test_question_sets_are_private_to_their_owner(self):
         with tempfile.TemporaryDirectory() as directory:
             database_path = Path(directory) / "players.sqlite3"
-            with patch.object(nierva_save_data, "PLAYER_DATABASE_PATH", database_path):
+            with use_test_player_database(database_path):
                 owner, _ = nierva_save_data.register_player("Owner", "owner password")
                 other, _ = nierva_save_data.register_player("Other", "other password")
                 set_id, message = nierva_save_data.save_question_set(
