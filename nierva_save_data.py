@@ -314,6 +314,34 @@ def save_question_set(username, name, csv_text):
     return set_id, ""
 
 
+def update_question_set(username, set_id, name, csv_text):
+    set_name = name.strip()
+    if not set_name:
+        return False, "Enter a name for this question set."
+    if len(set_name) > 60:
+        return False, "Question set names must be 60 characters or fewer."
+    if not all(char.isalnum() or char in " _-." for char in set_name):
+        return False, "Use only letters, numbers, spaces, periods, hyphens, or underscores."
+    parse_question_csv(csv_text)
+
+    key = username.casefold()
+    try:
+        with open_player_database() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE question_sets
+                SET name = %s, csv_text = %s
+                WHERE username_key = %s AND id = %s
+                """,
+                (set_name, csv_text, key, set_id),
+            )
+    except psycopg.errors.UniqueViolation:
+        return False, "A question set with that name already exists."
+    if cursor.rowcount != 1:
+        return False, "This question set is not available to this account."
+    return True, ""
+
+
 def set_active_question_set(username, set_id):
     key = username.casefold()
     with open_player_database() as connection:

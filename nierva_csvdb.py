@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import streamlit as st
 
 from nierva_save_data import (
@@ -7,6 +9,7 @@ from nierva_save_data import (
     list_question_sets,
     save_question_set,
     set_active_question_set,
+    update_question_set,
     validate_question_csv,
 )
 
@@ -66,6 +69,10 @@ def set_active_set(state_key):
         st.session_state.username,
         st.session_state[state_key],
     )
+
+
+def format_editor_target(set_id, names_by_id):
+    return "New question set" if set_id is None else names_by_id[set_id]
 
 
 def main():
@@ -128,26 +135,138 @@ def main():
         width="stretch",
     )
 
-    with st.form("upload_question_set"):
-        st.subheader("Add a question set")
-        set_name = st.text_input("Question set name", max_chars=60)
-        uploaded_file = st.file_uploader("Choose a CSV file", type=["csv"])
-        submitted = st.form_submit_button("Save and use this question set")
+    if "question_editor_target" not in st.session_state:
+        st.session_state.question_editor_target = active_set["id"]
+    if st.session_state.question_editor_target not in (
+        None,
+        *names_by_id.keys(),
+    ):
+        st.session_state.question_editor_target = active_set["id"]
+    if "question_editor_loaded_id" not in st.session_state:
+        st.session_state.question_editor_loaded_id = active_set["id"]
+        st.session_state.question_editor_csv = get_question_set_csv(
+            username,
+            active_set["id"],
+        )
+        st.session_state.question_editor_name = active_set["name"]
 
-    if submitted:
-        if uploaded_file is None:
-            st.error("Choose a CSV file to upload.")
+    upload_tab, editor_tab = st.tabs(["Upload CSV", "Paste or edit CSV"])
+    with upload_tab:
+        st.subheader("Load a CSV file into the editor")
+        uploaded_file = st.file_uploader(
+            "Choose a CSV file",
+            type=["csv"],
+            key="question_set_upload_file",
+        )
+        if st.button("Load file into editor", disabled=uploaded_file is None):
+            if uploaded_file is not None:
+                try:
+                    st.session_state.question_editor_csv = (
+                        uploaded_file.getvalue().decode("utf-8-sig")
+                    )
+                    st.session_state.question_editor_name = Path(
+                        uploaded_file.name
+                    ).stem
+                    st.session_state.question_editor_target = None
+                    st.session_state.question_editor_loaded_id = None
+                    st.session_state.question_editor_notice = (
+                        "CSV loaded. Review or edit it in the Paste or edit CSV tab, "
+                        "then save it."
+                    )
+                    st.session_state.question_editor_notice_type = "info"
+                except UnicodeDecodeError:
+                    st.error("The CSV file must be UTF-8 encoded.")
+        st.download_button(
+            "Download CSV template",
+            data=get_csv_template(),
+            file_name="question_template.csv",
+            mime="text/csv",
+        )
+
+    with editor_tab:
+        target_id = st.selectbox(
+            "Editing",
+            options=[None, *names_by_id],
+            format_func=lambda set_id: format_editor_target(set_id, names_by_id),
+            key="question_editor_target",
+        )
+        if st.session_state.question_editor_loaded_id != target_id:
+            if target_id is None:
+                st.session_state.question_editor_csv = get_csv_template()
+                st.session_state.question_editor_name = ""
+            else:
+                st.session_state.question_editor_csv = get_question_set_csv(
+                    username,
+                    target_id,
+                )
+                st.session_state.question_editor_name = names_by_id[target_id]
+            st.session_state.question_editor_loaded_id = target_id
+            st.session_state.question_editor_notice = ""
+            st.session_state.question_editor_notice_type = ""
+
+        if st.session_state.get("question_editor_notice"):
+            if st.session_state.get("question_editor_notice_type") == "success":
+                st.success(st.session_state.question_editor_notice)
+            else:
+                st.info(st.session_state.question_editor_notice)
+
+        st.text_input(
+            "Question set name",
+            max_chars=60,
+            key="question_editor_name",
+        )
+        st.text_area(
+            "CSV content",
+            key="question_editor_csv",
+            height=360,
+            help="Edit or paste the complete CSV, including its header row.",
+        )
+        is_valid, validation_message = validate_csv(
+            st.session_state.question_editor_csv
+        )
+        if is_valid:
+            st.success(validation_message)
         else:
+            st.error(validation_message)
+
+        save_label = (
+            "Save changes to question set"
+            if target_id is not None
+            else "Save as new question set"
+        )
+        if st.button(save_label, type="primary", disabled=not is_valid):
             try:
-                uploaded_csv = uploaded_file.getvalue().decode("utf-8-sig")
-                _, message = save_question_set(username, set_name, uploaded_csv)
-                if message:
-                    st.error(message)
+                if target_id is None:
+                    saved_id, message = save_question_set(
+                        username,
+                        st.session_state.question_editor_name,
+                        st.session_state.question_editor_csv,
+                    )
+                    if saved_id is None:
+                        st.error(message)
+                    else:
+                        st.session_state.question_editor_target = saved_id
+                        st.session_state.question_editor_loaded_id = saved_id
+                        st.session_state.question_editor_notice = (
+                            "Question set saved and activated."
+                        )
+                        st.session_state.question_editor_notice_type = "success"
+                        st.rerun()
                 else:
-                    st.success("Question set saved.")
-                    st.rerun()
-            except UnicodeDecodeError:
-                st.error("The CSV file must be UTF-8 encoded.")
+                    updated, message = update_question_set(
+                        username,
+                        target_id,
+                        st.session_state.question_editor_name,
+                        st.session_state.question_editor_csv,
+                    )
+                    if not updated:
+                        st.error(message)
+                    else:
+                        st.session_state.question_editor_notice = (
+                            "Question set changes saved."
+                        )
+                        st.session_state.question_editor_notice_type = "success"
+                        st.rerun()
             except ValueError as error:
                 st.error(str(error))
 

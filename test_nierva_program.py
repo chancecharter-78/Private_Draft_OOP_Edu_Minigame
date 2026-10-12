@@ -224,6 +224,40 @@ class PlayerDataTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "not available"):
                     nierva_save_data.get_question_set_csv(other.player_name, set_id)
 
+    def test_question_set_can_be_edited_only_by_its_owner(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database_path = Path(directory) / "players.sqlite3"
+            with use_test_player_database(database_path):
+                owner, _ = nierva_save_data.register_player("Owner", "owner password")
+                other, _ = nierva_save_data.register_player("Other", "other password")
+                set_id, message = nierva_save_data.save_question_set(
+                    owner.player_name,
+                    "Editable set",
+                    VALID_CSV,
+                )
+                self.assertEqual(message, "")
+
+                updated, message = nierva_save_data.update_question_set(
+                    owner.player_name,
+                    set_id,
+                    "Edited set",
+                    VALID_CSV.replace("Sample question?", "Edited question?"),
+                )
+                self.assertTrue(updated)
+                self.assertEqual(message, "")
+                self.assertEqual(
+                    nierva_save_data.get_question_set_csv(owner.player_name, set_id),
+                    VALID_CSV.replace("Sample question?", "Edited question?"),
+                )
+                self.assertFalse(
+                    nierva_save_data.update_question_set(
+                        other.player_name,
+                        set_id,
+                        "Hijacked set",
+                        VALID_CSV,
+                    )[0]
+                )
+
 
 class GameRuleTests(unittest.TestCase):
     def test_slider_position_uses_elapsed_time_not_frame_count(self):
