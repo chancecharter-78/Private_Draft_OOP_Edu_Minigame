@@ -90,20 +90,19 @@ def sign_in():
                 key="new_password",
                 max_chars=128,
             )
-            login_col, register_col = st.columns(2)
-            with login_col:
-                st.form_submit_button("Log In", on_click=log_in)
-            with register_col, st.container(
+            create_col, login_col = st.columns(2)
+            with create_col:
+                st.form_submit_button("Create account", on_click=create_account)
+            with login_col, st.container(
                 horizontal=True,
                 horizontal_alignment="right",
             ):
-                with st.container(horizontal=True, horizontal_alignment="right"):
-                    st.form_submit_button(
-                        "Already have an account? Log In",
-                        type="tertiary",
-                        on_click=switch_auth_view,
-                        args=("login",),
-                    )
+                st.form_submit_button(
+                    "Already have an account? Log In",
+                    type="tertiary",
+                    on_click=switch_auth_view,
+                    args=("login",),
+                )
 
     if st.session_state.get("auth_error"):
         st.error(st.session_state.auth_error)
