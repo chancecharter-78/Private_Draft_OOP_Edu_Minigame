@@ -3,13 +3,16 @@ import sqlite3
 import tempfile
 import unittest
 from contextlib import contextmanager
+from datetime import date, datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
 import nierva_app
 import nierva_bit_fit
 import nierva_combo_system
+import nierva_csvdb
 import nierva_hacking
+import nierva_progression
 import nierva_progression_engine
 import nierva_save_data
 import nierva_slider
@@ -61,6 +64,15 @@ class SQLitePostgresAdapter:
                 level INTEGER NOT NULL,
                 points INTEGER NOT NULL,
                 details TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS question_review_cards (
+                username_key TEXT NOT NULL REFERENCES players(username_key)
+                    ON DELETE CASCADE,
+                question_set_id INTEGER NOT NULL REFERENCES question_sets(id)
+                    ON DELETE CASCADE,
+                question_key TEXT NOT NULL,
+                card_json TEXT NOT NULL,
+                PRIMARY KEY (username_key, question_set_id, question_key)
             );
             """
         )
@@ -140,6 +152,91 @@ class QuestionDataTests(unittest.TestCase):
             ))
         )
 
+    def test_bit_fit_defaults_to_ten_columns_and_expands_for_long_answers(self):
+        short_answer = nierva_bit_fit.create_cipher("VERTEBRATE", 1)
+        long_answer = nierva_bit_fit.create_cipher("VERTEBRATES", 1)
+
+        self.assertEqual(short_answer["column_count"], 10)
+        self.assertEqual(long_answer["column_count"], len("VERTEBRATES"))
+        self.assertEqual(sum(long_answer["active_columns"]), len("VERTEBRATES"))
+
+    def test_bit_fit_active_choices_match_required_character_type(self):
+        cipher = nierva_bit_fit.create_cipher("A7.", 1)
+        active_indexes = [
+            index for index, active in enumerate(cipher["active_columns"]) if active
+        ]
+
+        for index, expected_character in zip(active_indexes, cipher["cipher_answer"]):
+            choices = cipher["options"][index]
+            self.assertIn(expected_character, choices)
+            if expected_character.isalpha():
+                self.assertTrue(all(choice.isalpha() for choice in choices))
+            elif expected_character.isdigit():
+                self.assertTrue(all(choice.isdigit() for choice in choices))
+            else:
+                self.assertTrue(all(not choice.isalnum() for choice in choices))
+
+    def test_bit_fit_next_choice_follows_each_column_cycle_order(self):
+        st.session_state.bf_options = [["V", "B", "C"]]
+        st.session_state.bf_player = ["V"]
+
+        self.assertEqual(nierva_bit_fit.get_next_choice(0), "B")
+
+        st.session_state.bf_player[0] = "B"
+        self.assertEqual(nierva_bit_fit.get_next_choice(0), "C")
+
+        st.session_state.bf_player[0] = "C"
+        self.assertEqual(nierva_bit_fit.get_next_choice(0), "V")
+
+    def test_bit_fit_draws_all_cipher_columns_in_one_row(self):
+        st.session_state.bf_reveal_started = 100.0
+        st.session_state.bf_cols = 11
+        st.session_state.bf_active = [True] * 11
+        st.session_state.bf_answer_reveal_stages = [(0.0, 0.0, 0.0)] * 11
+        st.session_state.bf_answer_letters = list("VERTEBRATES")
+        st.session_state.bf_player = list("AAAAAAAAAAA")
+        st.session_state.bf_options = [["A", "B", "C"] for _ in range(11)]
+        st.session_state.bf_over = False
+        columns = [unittest.mock.Mock() for _ in range(11)]
+
+        with (
+            patch.object(nierva_bit_fit.st, "columns", return_value=columns) as make_columns,
+            patch.object(nierva_bit_fit.time, "monotonic", return_value=101.0),
+        ):
+            nierva_bit_fit.draw_cipher_columns()
+
+        make_columns.assert_called_once_with(11)
+        self.assertEqual(sum(column.button.call_count for column in columns), 11)
+        self.assertEqual(sum(column.caption.call_count for column in columns), 11)
+
+
+class QuestionSetWidgetTests(unittest.TestCase):
+    def test_active_set_callback_ignores_missing_widget_state(self):
+        with (
+            patch.object(nierva_csvdb, "st") as streamlit,
+            patch.object(nierva_csvdb, "set_active_question_set") as set_active,
+        ):
+            streamlit.session_state = {"username": "Owner"}
+
+            nierva_csvdb.set_active_set()
+
+        set_active.assert_not_called()
+
+    def test_active_set_callback_rejects_non_id_values(self):
+        with (
+            patch.object(nierva_csvdb, "st") as streamlit,
+            patch.object(nierva_csvdb, "set_active_question_set") as set_active,
+        ):
+            streamlit.session_state = {
+                "username": "Owner",
+                nierva_csvdb.ACTIVE_SET_STATE_KEY: "Science",
+            }
+
+            nierva_csvdb.set_active_set()
+
+        streamlit.error.assert_called_once()
+        set_active.assert_not_called()
+
 
 class PlayerDataTests(unittest.TestCase):
     def test_missing_database_secret_reports_streamlit_setup(self):
@@ -198,9 +295,24 @@ class PlayerDataTests(unittest.TestCase):
                     "correct horse battery",
                 )
                 self.assertEqual(saved_player.check_score(), 300)
+                self.assertEqual(saved_player.check_level(), 1)
+                self.assertEqual(
+                    saved_player.get_rank_progress(),
+                    {"rank": 1, "current_xp": 300, "required_xp": 1500},
+                )
                 self.assertEqual(saved_player.check_completed_rounds(), 1)
                 self.assertEqual(saved_player.get_history()[0]["points"], 300)
                 self.assertEqual(nierva_save_data.get_leaderboard()[0]["Player"], "Test Player")
+
+    def test_adventure_rank_uses_existing_lifetime_score_and_overflow(self):
+        player = nierva_save_data.GameSaveData(starting_score=1500 + 1750 + 125)
+
+        self.assertEqual(player.check_score(), 3375)
+        self.assertEqual(player.check_level(), 3)
+        self.assertEqual(
+            player.get_rank_progress(),
+            {"rank": 3, "current_xp": 125, "required_xp": 2000},
+        )
 
     def test_question_sets_are_private_to_their_owner(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -254,6 +366,12 @@ class PlayerDataTests(unittest.TestCase):
                     nierva_save_data.get_question_set_csv(owner.player_name, set_id),
                     VALID_CSV.replace("Sample question?", "Edited question?"),
                 )
+                saved_sets = nierva_save_data.list_question_sets(owner.player_name)
+                self.assertEqual(len(saved_sets), 2)
+                self.assertIn(
+                    {"id": set_id, "name": "Edited set", "active": True},
+                    saved_sets,
+                )
                 self.assertFalse(
                     nierva_save_data.update_question_set(
                         other.player_name,
@@ -263,20 +381,121 @@ class PlayerDataTests(unittest.TestCase):
                     )[0]
                 )
 
+    def test_question_review_card_is_persisted_for_active_set(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database_path = Path(directory) / "players.sqlite3"
+            with use_test_player_database(database_path):
+                player, _ = nierva_save_data.register_player(
+                    "Review Player",
+                    "review password",
+                )
+
+                card = player.record_question_review("Sample question?", 2)
+
+                self.assertEqual(card["last_rating"], 2)
+                self.assertEqual(
+                    player.get_question_review_states()[
+                        player._question_review_key("Sample question?")
+                    ],
+                    card,
+                )
+
+    def test_missing_question_review_schema_has_actionable_error(self):
+        player = nierva_save_data.GameSaveData(player_name="Review Player")
+        connection = unittest.mock.Mock()
+        connection.execute.side_effect = psycopg.errors.UndefinedTable(
+            "relation question_review_cards does not exist"
+        )
+
+        @contextmanager
+        def missing_review_table():
+            yield connection
+
+        with patch.object(
+            nierva_save_data,
+            "open_player_database",
+            missing_review_table,
+        ):
+            for operation in (
+                player.get_question_review_states,
+                lambda: player.record_question_review("Sample question?", 2),
+            ):
+                with self.subTest(operation=operation):
+                    with self.assertRaisesRegex(
+                        nierva_save_data.QuestionReviewSchemaError,
+                        "20261014000000_create_question_review_cards.sql",
+                    ):
+                        operation()
+
 
 class GameRuleTests(unittest.TestCase):
+    def test_missing_core_database_table_message_names_required_migrations(self):
+        missing_table = psycopg.errors.UndefinedTable(
+            'relation "question_sets" does not exist'
+        )
+
+        message = nierva_app.format_database_error(missing_table)
+        self.assertIn("do not rerun the initial schema setup", message)
+        self.assertIn("20261014000000_create_question_review_cards.sql", message)
+        self.assertIn("SUPABASE_DB_URL", message)
+
+    def test_slider_initialization_detects_missing_question_state(self):
+        st.session_state.clear()
+        st.session_state.update({
+            key: None for key in nierva_slider.SLIDER_STATE_KEYS
+        })
+        st.session_state.pop("slider_question")
+
+        self.assertFalse(nierva_slider.slider_state_initialized())
+
+        st.session_state.slider_question = {"question": "Sample question?"}
+        self.assertTrue(nierva_slider.slider_state_initialized())
+
+    def test_slider_stop_ignores_duplicate_submission_in_one_round(self):
+        st.session_state.clear()
+        st.session_state.slider_over = False
+        st.session_state.slider_round_locked = False
+        st.session_state.slider_position_history = []
+        st.session_state.slider_position = 50
+        st.session_state.slider_correct_index = 2
+
+        with patch.object(nierva_slider, "finish_round") as finish_round:
+            nierva_slider.lock_slider()
+            nierva_slider.lock_slider()
+
+        finish_round.assert_called_once_with(True)
+        self.assertTrue(st.session_state.slider_round_locked)
+
     def test_slider_position_uses_elapsed_time_not_frame_count(self):
         one_second = nierva_slider.advance_position(50, 1, 4, 1)
-        ten_frames = (50, 1)
-        for _ in range(10):
-            ten_frames = nierva_slider.advance_position(*ten_frames, 4, 0.1)
-        self.assertAlmostEqual(one_second[0], ten_frames[0])
-        self.assertEqual(one_second[1], ten_frames[1])
+        five_refreshes = (50, 1)
+        for _ in range(5):
+            five_refreshes = nierva_slider.advance_position(
+                *five_refreshes,
+                4,
+                0.2,
+            )
+        self.assertAlmostEqual(one_second[0], five_refreshes[0])
+        self.assertEqual(one_second[1], five_refreshes[1])
 
-    def test_slider_stop_uses_two_recorded_ticks_earlier(self):
+    def test_slider_stop_uses_latest_recorded_tick(self):
         ticks = [(10, 1), (20, 1), (30, 1), (40, 1)]
-        self.assertEqual(nierva_slider.get_stop_position(ticks), (20, 1))
-        self.assertEqual(nierva_slider.get_stop_position(ticks[:2]), (10, 1))
+        self.assertEqual(nierva_slider.get_stop_position(ticks), (40, 1))
+        self.assertEqual(nierva_slider.get_stop_position(ticks[:2]), (20, 1))
+
+    def test_slider_correct_zone_allows_one_tick_grace_on_both_sides(self):
+        self.assertTrue(
+            nierva_slider.is_position_within_correct_zone(48, 2, 3)
+        )
+        self.assertTrue(
+            nierva_slider.is_position_within_correct_zone(77, 2, 3)
+        )
+        self.assertFalse(
+            nierva_slider.is_position_within_correct_zone(46, 2, 3)
+        )
+        self.assertFalse(
+            nierva_slider.is_position_within_correct_zone(78.1, 2, 3)
+        )
 
     def test_bit_fit_points_use_reveal_tiers(self):
         self.assertEqual(nierva_bit_fit.calculate_points(2, 0, 8), 600)
@@ -309,6 +528,48 @@ class GameRuleTests(unittest.TestCase):
         self.assertFalse(st.session_state.project)
         self.assertFalse(st.session_state.game)
 
+    def test_start_gate_uses_three_second_delay_then_three_second_countdown(self):
+        self.assertEqual(nierva_progression.get_start_phase(0), ("delay", None))
+        self.assertEqual(nierva_progression.get_start_phase(2.99), ("delay", None))
+        self.assertEqual(nierva_progression.get_start_phase(3), ("countdown", 3))
+        self.assertEqual(nierva_progression.get_start_phase(4), ("countdown", 2))
+        self.assertEqual(nierva_progression.get_start_phase(5), ("countdown", 1))
+        self.assertEqual(nierva_progression.get_start_phase(6), ("ready", None))
+
+    def test_game_completion_waits_for_continue_before_switching(self):
+        st.session_state.clear()
+        nierva_progression.start_game("Bit Fit")
+        st.session_state.flow_target = 1
+
+        self.assertTrue(nierva_progression.record_success("Bit Fit", "Finished"))
+        self.assertEqual(st.session_state.page, "Bit Fit")
+        self.assertTrue(st.session_state.game_result_ready)
+        self.assertEqual(st.session_state.game_result_message, "Finished")
+
+    def test_question_review_ratings_never_exceed_user_rating(self):
+        self.assertEqual(nierva_spaced_repetition.combine_ratings(1, 4), 1)
+        self.assertEqual(nierva_spaced_repetition.combine_ratings(4, 3), 3)
+        self.assertEqual(nierva_spaced_repetition.combine_ratings(2, 1), 1)
+
+    def test_performance_rating_and_review_due_date(self):
+        self.assertEqual(nierva_spaced_repetition.map_performance_to_rating(False, 1, 8), 1)
+        self.assertEqual(nierva_spaced_repetition.map_performance_to_rating(True, 4, 8), 4)
+        self.assertEqual(nierva_spaced_repetition.map_performance_to_rating(True, 8, 8), 3)
+        self.assertEqual(nierva_spaced_repetition.map_performance_to_rating(True, 9, 8), 2)
+        card = nierva_spaced_repetition.advance_review_card(
+            None,
+            3,
+            reviewed_on=date(2026, 10, 14),
+        )
+        self.assertEqual(
+            datetime.fromisoformat(card["last_review"]),
+            datetime(2026, 10, 14, tzinfo=timezone.utc),
+        )
+        self.assertGreater(
+            datetime.fromisoformat(card["due"]),
+            datetime.fromisoformat(card["last_review"]),
+        )
+
 
 class ComboSystemTests(unittest.TestCase):
     def setUp(self):
@@ -331,10 +592,16 @@ class ComboSystemTests(unittest.TestCase):
         self.assertEqual(next_item["state"], "REVIEW")
         self.assertEqual(next_item["interval"], 1)
 
-        profile = {"current_rank": 1, "current_points": 200, "is_locked": False}
-        next_profile = nierva_progression_engine.apply_points_to_profile(profile, 400)
-        self.assertEqual(next_profile["current_rank"], 3)
-        self.assertEqual(next_profile["current_points"], 350)
+        self.assertEqual(nierva_progression_engine.get_rank_thresholds(1), 1500)
+        self.assertEqual(nierva_progression_engine.get_rank_thresholds(10), 3750)
+        profile = {"current_rank": 1, "current_points": 1200, "is_locked": False}
+        next_profile = nierva_progression_engine.apply_points_to_profile(profile, 500)
+        self.assertEqual(next_profile["current_rank"], 2)
+        self.assertEqual(next_profile["current_points"], 200)
+        self.assertEqual(
+            nierva_progression_engine.profile_from_total_xp(3250),
+            {"current_rank": 3, "current_points": 0, "is_locked": False},
+        )
 
 
 if __name__ == "__main__":

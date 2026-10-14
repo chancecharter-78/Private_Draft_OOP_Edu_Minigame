@@ -51,7 +51,6 @@ def init_hacking():
     st.session_state.hack_input = ""
     st.session_state.hack_over = False
     st.session_state.hack_win = False
-    nierva_timer.start_timer("hacking")
 
 
 def evaluate_guess(guess, password):
@@ -78,8 +77,16 @@ def lose_round(message):
     st.session_state.hack_over = True
     st.session_state.hack_win = False
     st.session_state.hack_notice = message
-    nierva_timer.stop_timer("hacking")
-    nierva_progression.record_failure("Hacking")
+    elapsed = nierva_timer.stop_timer("hacking")
+    chosen_answer = st.session_state.hack_log[-1][0] if st.session_state.hack_log else ""
+    nierva_progression.record_question_result(
+        st.session_state.hack_question,
+        chosen_answer,
+        False,
+        elapsed,
+        nierva_progression.QUESTION_TARGET_SECONDS["Hacking"],
+    )
+    nierva_progression.record_failure("Hacking", message)
 
 
 def restart_hacking():
@@ -114,6 +121,13 @@ def pick_word():
         st.session_state.hack_win = True
         st.session_state.hack_over = True
         elapsed = nierva_timer.stop_timer("hacking")
+        nierva_progression.record_question_result(
+            st.session_state.hack_question,
+            guess,
+            True,
+            elapsed,
+            nierva_progression.QUESTION_TARGET_SECONDS["Hacking"],
+        )
         reward = nierva_combo_system.apply_win("Hacking", elapsed_seconds=elapsed)
         message = (
             f"🎉 Decryption Complete in {nierva_timer.format_time(elapsed)}! "
@@ -129,6 +143,7 @@ def pick_word():
             return
 
         init_hacking()
+        nierva_timer.start_timer("hacking")
         st.session_state.hack_notice = message
     elif st.session_state.hack_attempts <= 0:
         nierva_combo_system.apply_hard_fail("Hacking")
@@ -144,6 +159,11 @@ def main():
     save_data = get_save_data()
     if "hack_password" not in st.session_state:
         init_hacking()
+    if st.session_state.get("game_result_ready", False):
+        nierva_progression.render_game_result("Hacking", save_data)
+        return
+    if not nierva_progression.render_start_gate("Hacking", "hacking"):
+        return
 
     attempts_col, score_col, time_col, combo_col, reset_col = st.columns([1, 1, 1.2, 1, 1])
     reset_col.button(
@@ -183,12 +203,8 @@ def main():
     with log_col:
         st.markdown("#### 📋 Diagnostic Log:")
         question = st.session_state.hack_question
-        st.text_area(
-            "Question",
-            value=question["question"],
-            height=90,
-            disabled=True,
-        )
+        st.caption("Question")
+        st.text(question["question"])
         st.caption(f"Subject: {question['game']} | Difficulty: {question['difficulty']}")
         st.info(
             "**Legend**:\n"

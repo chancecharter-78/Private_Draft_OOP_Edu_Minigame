@@ -13,6 +13,8 @@ from nierva_save_data import (
     validate_question_csv,
 )
 
+ACTIVE_SET_STATE_KEY = "active_question_set_id"
+
 
 def get_schema():
     return {"required_columns": REQUIRED_COLUMNS, "optional_columns": ()}
@@ -64,11 +66,20 @@ def validate_csv(csv_text):
     return validate_question_csv(csv_text)
 
 
-def set_active_set(state_key):
-    set_active_question_set(
-        st.session_state.username,
-        st.session_state[state_key],
-    )
+def set_active_set():
+    if (
+        ACTIVE_SET_STATE_KEY not in st.session_state
+        or "username" not in st.session_state
+    ):
+        return
+
+    set_id = st.session_state[ACTIVE_SET_STATE_KEY]
+    if type(set_id) is not int:
+        st.error("Could not change the active question set. Please select a saved set.")
+        return
+
+    if not set_active_question_set(st.session_state.username, set_id):
+        st.error("The selected question set is no longer available to this account.")
 
 
 def format_editor_target(set_id, names_by_id):
@@ -115,15 +126,14 @@ def main():
 
     names_by_id = {item["id"]: item["name"] for item in question_sets}
     active_set = next(item for item in question_sets if item["active"])
-    state_key = f"question_set_{active_set['id']}"
+    st.session_state[ACTIVE_SET_STATE_KEY] = active_set["id"]
     selected_id = st.selectbox(
         "Active question set",
         options=list(names_by_id),
         index=list(names_by_id).index(active_set["id"]),
         format_func=lambda set_id: names_by_id[set_id],
-        key=state_key,
+        key=ACTIVE_SET_STATE_KEY,
         on_change=set_active_set,
-        args=(state_key,),
     )
 
     csv_text = get_question_set_csv(username, selected_id)
@@ -135,6 +145,10 @@ def main():
         width="stretch",
     )
 
+    if "question_editor_pending_target" in st.session_state:
+        st.session_state.question_editor_target = st.session_state.pop(
+            "question_editor_pending_target"
+        )
     if "question_editor_target" not in st.session_state:
         st.session_state.question_editor_target = active_set["id"]
     if st.session_state.question_editor_target not in (
@@ -158,7 +172,7 @@ def main():
             type=["csv"],
             key="question_set_upload_file",
         )
-        if st.button("Load file into editor", disabled=uploaded_file is None):
+        if st.button("Load File", disabled=uploaded_file is None):
             if uploaded_file is not None:
                 try:
                     st.session_state.question_editor_csv = (
@@ -235,6 +249,12 @@ def main():
             else "Save as new question set"
         )
         if st.button(save_label, type="primary", disabled=not is_valid):
+            if st.session_state.question_editor_loaded_id != target_id:
+                st.error(
+                    "The selected question set changed before it was loaded. "
+                    "Please select it again before saving."
+                )
+                st.rerun()
             try:
                 if target_id is None:
                     saved_id, message = save_question_set(
@@ -245,7 +265,7 @@ def main():
                     if saved_id is None:
                         st.error(message)
                     else:
-                        st.session_state.question_editor_target = saved_id
+                        st.session_state.question_editor_pending_target = saved_id
                         st.session_state.question_editor_loaded_id = saved_id
                         st.session_state.question_editor_notice = (
                             "Question set saved and activated."

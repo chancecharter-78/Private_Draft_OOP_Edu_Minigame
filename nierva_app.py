@@ -1,4 +1,5 @@
 import streamlit as st
+import psycopg
 
 import nierva_home
 import nierva_about
@@ -11,6 +12,7 @@ import nierva_leaderboard
 import nierva_progression
 
 from nierva_save_data import (
+    QuestionReviewSchemaError,
     authenticate_player,
     clean_username,
     register_player,
@@ -170,9 +172,7 @@ def set_page(page, reset_game=False):
 def start_minigames():
     current_game = st.session_state.get("flow_game")
     if current_game in GAME_PAGES:
-        st.session_state.page = current_game
-        st.session_state.project = True
-        st.session_state.game = True
+        nierva_progression.start_game(current_game)
     else:
         nierva_progression.start_game("Slider")
 
@@ -185,6 +185,26 @@ def load_page():
         GAME_PAGES[page]()
     else:
         INFO_PAGES.get(page, nierva_home.main)()
+
+
+def format_database_error(error):
+    if isinstance(error, psycopg.errors.UndefinedTable):
+        return (
+            "The configured database is missing a table required by the app. "
+            "If this database already contains player or question-set data, do "
+            "not rerun the initial schema setup; first verify that "
+            "SUPABASE_DB_URL points to the existing project. If the missing "
+            "table is question_review_cards and the core tables already exist, "
+            "run only "
+            "supabase/migrations/20261014000000_create_question_review_cards.sql. "
+            "Run the initial schema setup only when creating a new, empty database."
+        )
+    return (
+        "The database could not complete this action "
+        f"({type(error).__name__}). Please retry. If it continues, contact "
+        "the app administrator."
+    )
+
 
 def main():
     draw_style()
@@ -240,7 +260,7 @@ def main():
             width="stretch",
         )
         st.button(
-            "📚 Question Sets",
+            "📚 Question Set Browser",
             on_click=set_page,
             args=("Question Sets",),
             width="stretch",
@@ -251,7 +271,12 @@ def main():
             width="stretch",
         )
 
-    load_page()
+    try:
+        load_page()
+    except QuestionReviewSchemaError as error:
+        st.error(str(error))
+    except psycopg.Error as error:
+        st.error(format_database_error(error))
 
     message = st.session_state.get("switch_message", "")
     if message:

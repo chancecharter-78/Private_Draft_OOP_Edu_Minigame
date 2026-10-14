@@ -8,10 +8,16 @@ to users.
 ## Initialize the Supabase database
 
 1. Create a Supabase project and keep its database password private.
-2. Open the Supabase SQL Editor and run the schema setup file once:
+2. For a new, empty database only, open the Supabase SQL Editor and run the schema setup file once:
    [`supabase/migrations/20261011000000_create_game_tables.sql`](./supabase/migrations/20261011000000_create_game_tables.sql).
-   This creates the tables and indexes the app needs; it is not a data import.
-3. In the project's **Connect** dialog, copy a PostgreSQL connection URI and
+   This creates the core tables and indexes. Do not run it again against a
+   database that already contains app data.
+3. Run the review-card migration in the same project:
+   [`supabase/migrations/20261014000000_create_question_review_cards.sql`](./supabase/migrations/20261014000000_create_question_review_cards.sql).
+   This adds a new table for per-player, per-question-set scheduling state; it
+   does not replace or modify existing players, question sets, or game progress.
+   For an existing installation with the core tables, run only this migration.
+4. In the project's **Connect** dialog, copy a PostgreSQL connection URI and
    make sure it includes `sslmode=require`.
 
 New accounts and game progress are written straight to this Supabase database.
@@ -30,6 +36,13 @@ Save the secret and reboot the app. The app reads it from `st.secrets`; never
 put the URI in source code, commit it, or paste it into chat. App restarts then
 reconnect to the same Supabase database instead of relying on the app's local
 filesystem.
+
+If a game reports that a required database table is missing, first verify that
+`SUPABASE_DB_URL` points to the project containing the existing app data. For
+an existing installation whose core tables are present, apply only the
+review-card migration from step 3. Do not rerun the initial schema setup on a
+database containing data; it is intended only for a new, empty database. The
+app does not automatically run migrations.
 
 ## Install on a persistent Linux host
 

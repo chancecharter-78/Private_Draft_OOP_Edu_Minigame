@@ -59,8 +59,16 @@ def main():
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Player", save_data.player_name)
     col2.metric("Accumulated Score", save_data.check_score())
-    col3.metric("Player Level", save_data.check_level())
+    rank_progress = save_data.get_rank_progress()
+    col3.metric("Adventure Rank", rank_progress["rank"])
     col4.metric("Total Clears", save_data.check_completed_rounds())
+    st.progress(
+        rank_progress["current_xp"] / rank_progress["required_xp"],
+        text=(
+            f"Rank {rank_progress['rank']} progress: "
+            f"{rank_progress['current_xp']} / {rank_progress['required_xp']} XP"
+        ),
+    )
 
     st.button("🔄 Reset Save Data Progress", on_click=reset_save_data)
     if st.session_state.pop("save_reset_notice", False):

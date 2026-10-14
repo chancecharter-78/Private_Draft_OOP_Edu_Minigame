@@ -137,27 +137,28 @@ def compute_game_base_score(
     if game_name == "hacking":
         if elapsed_seconds < 5:
             return 500
-        if elapsed_seconds < 8:
+        if elapsed_seconds < 7:
             return 300
-        if elapsed_seconds < 12:
+        if elapsed_seconds < 9:
             return 200
         return 100
 
     if game_name == "slider":
         correct_count = int(correct_questions or 0)
-        if correct_count <= 4 and elapsed_seconds <= 20:
+        if correct_count <= 4 and elapsed_seconds <= 5:
             return 500
-        if correct_count <= 3 and elapsed_seconds <= 25:
+        if correct_count <= 3 and elapsed_seconds <= 7:
             return 300
-        if correct_count <= 4 and elapsed_seconds <= 35:
+        if correct_count <= 4 and elapsed_seconds <= 11:
             return 200
         return 100
 
     return 100
 
 
-def render_combo_status(label: str = "Combo"):
+def render_combo_status(label: str = "Combo", visible: bool = True):
     """Display the live multiplier and streak for the active game."""
     combo = ensure_combo_state()
-    st.caption(f"{label}: {combo['multiplier']:.2f}x · streak {combo['streak']}")
+    if visible:
+        st.caption(f"{label}: {combo['multiplier']:.2f}x · streak {combo['streak']}")
     return combo

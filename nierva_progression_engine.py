@@ -1,26 +1,34 @@
-"""Stateless progression helpers for player rank and point thresholds."""
+"""Rank progression derived from lifetime score totals."""
 
 from __future__ import annotations
 
 
-DEFAULT_THRESHOLD_CURVE = {
-    1: 0,
-    2: 250,
-    3: 550,
-    4: 900,
-    5: 1350,
-    6: 1900,
-    7: 2600,
-    8: 3400,
-    9: 4300,
-    10: 5300,
-}
+FIRST_RANK_XP_REQUIREMENT = 1500
+RANK_XP_INCREMENT = 250
 
 
 def get_rank_thresholds(current_rank: int, thresholds: dict[int, int] | None = None) -> int:
-    """Return the points required for the given rank in a stateless way."""
-    table = thresholds or DEFAULT_THRESHOLD_CURVE
-    return table.get(current_rank, table[max(table)])
+    """Return XP needed to advance from the specified rank."""
+    if current_rank < 1:
+        current_rank = 1
+    if thresholds:
+        return thresholds.get(current_rank, thresholds[max(thresholds)])
+    return FIRST_RANK_XP_REQUIREMENT + RANK_XP_INCREMENT * (current_rank - 1)
+
+
+def profile_from_total_xp(total_xp: int) -> dict[str, int | bool]:
+    """Convert cumulative XP into a rank and XP remainder for that rank."""
+    remaining_xp = max(0, int(total_xp))
+    current_rank = 1
+    while remaining_xp >= get_rank_thresholds(current_rank):
+        remaining_xp -= get_rank_thresholds(current_rank)
+        current_rank += 1
+
+    return {
+        "current_rank": current_rank,
+        "current_points": remaining_xp,
+        "is_locked": False,
+    }
 
 
 def apply_points_to_profile(
@@ -29,17 +37,16 @@ def apply_points_to_profile(
     thresholds: dict[int, int] | None = None,
     blocker_ranks: set[int] | None = None,
 ) -> dict:
-    """Apply points to a profile without mutating the input dictionary.
+    """Apply XP to an in-memory rank profile without mutating the input.
 
-    The payload uses the three persistent variables required by the spec:
-    {current_rank, current_points, is_locked}
+    Any XP beyond a rank threshold carries into the next rank.
     """
     state = dict(profile or {"current_rank": 1, "current_points": 0, "is_locked": False})
     current_rank = int(state.get("current_rank", 1))
     current_points = int(state.get("current_points", 0))
     is_locked = bool(state.get("is_locked", False))
     blockers = blocker_ranks or set()
-    table = thresholds or DEFAULT_THRESHOLD_CURVE
+    table = thresholds
 
     if is_locked:
         return {

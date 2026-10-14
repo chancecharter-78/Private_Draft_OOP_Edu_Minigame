@@ -1,16 +1,22 @@
 import csv
 import hashlib
+import hashlib
 import hmac
+import json
 import os
 import random
 import secrets
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from io import StringIO
 from pathlib import Path
 
 import psycopg
 import streamlit as st
 from streamlit.errors import StreamlitSecretNotFoundError
+
+import nierva_progression_engine
+import nierva_spaced_repetition
 
 
 QUESTION_DATABASE_PATH = Path(__file__).with_name("nierva_questions.csv")
@@ -31,6 +37,17 @@ ANSWER_COLUMNS = (
 )
 MAX_ANSWER_LENGTH = 32
 PASSWORD_ITERATIONS = 310_000
+
+
+class QuestionReviewSchemaError(RuntimeError):
+    """Raised when the database is missing the question-review migration."""
+
+
+QUESTION_REVIEW_MIGRATION_MESSAGE = (
+    "Question review scheduling is not set up in the database. Run "
+    "supabase/migrations/20261014000000_create_question_review_cards.sql "
+    "in the Supabase SQL Editor, then retry."
+)
 
 
 def parse_question_csv(csv_text):
@@ -195,7 +212,7 @@ def authenticate_player(username, password):
     with open_player_database() as connection:
         row = connection.execute(
             """
-            SELECT username, password_salt, password_hash, score, level, completed_rounds
+            SELECT username, password_salt, password_hash, score, completed_rounds
             FROM players
             WHERE username_key = %s
             """,
@@ -204,7 +221,7 @@ def authenticate_player(username, password):
         if row is None:
             return None
 
-        saved_name, salt, saved_hash, score, level, completed_rounds = row
+        saved_name, salt, saved_hash, score, completed_rounds = row
         if not salt or not saved_hash:
             return None
         entered_hash = hash_password(password, bytes.fromhex(salt)).hex()
@@ -224,7 +241,6 @@ def authenticate_player(username, password):
     return GameSaveData(
         player_name=saved_name,
         starting_score=score,
-        level=level,
         completed_rounds=completed_rounds,
         history=[
             {"game": game, "level": level, "points": points, "details": details}
@@ -383,13 +399,11 @@ class GameSaveData:
         self,
         player_name="Player 1",
         starting_score=0,
-        level=1,
         completed_rounds=0,
         history=None,
     ):
         self.player_name = player_name
-        self._score = starting_score
-        self._level = level
+        self._score = max(0, starting_score)
         self._completed_rounds = completed_rounds
         self._game_history = list(history or [])
 
@@ -397,7 +411,16 @@ class GameSaveData:
         return self._score
 
     def check_level(self):
-        return self._level
+        return self.get_rank_progress()["rank"]
+
+    def get_rank_progress(self):
+        profile = nierva_progression_engine.profile_from_total_xp(self._score)
+        rank = profile["current_rank"]
+        return {
+            "rank": rank,
+            "current_xp": profile["current_points"],
+            "required_xp": nierva_progression_engine.get_rank_thresholds(rank),
+        }
 
     def check_completed_rounds(self):
         return self._completed_rounds
@@ -431,8 +454,7 @@ class GameSaveData:
             cursor = connection.execute(
                 """
                 UPDATE players
-                SET score = score + %s, level = level + 1,
-                    completed_rounds = completed_rounds + 1
+                SET score = score + %s, completed_rounds = completed_rounds + 1
                 WHERE username_key = %s
                 """,
                 (points, key),
@@ -446,17 +468,16 @@ class GameSaveData:
                 """,
                 (key, game_name, level_cleared, points, details),
             )
-            score, level, completed_rounds = connection.execute(
+            score, completed_rounds = connection.execute(
                 """
-                SELECT score, level, completed_rounds
+                SELECT score, completed_rounds
                 FROM players
                 WHERE username_key = %s
                 """,
                 (key,),
             ).fetchone()
-
         self._score = score
-        self._level = level
+        self._score = score
         self._completed_rounds = completed_rounds
         self._game_history.append({
             "game": game_name,
@@ -484,7 +505,6 @@ class GameSaveData:
                 (key,),
             )
         self._score = 0
-        self._level = 1
         self._completed_rounds = 0
         self._game_history.clear()
         return True
@@ -505,12 +525,126 @@ class GameSaveData:
             question for question in questions
             if question["question"] not in previous_questions
         ]
-        return random.choice(available or questions)
+        candidates = available or questions
+        review_states = self.get_question_review_states()
+        now = datetime.now(timezone.utc)
+        scheduled_candidates = [
+            (
+                question,
+                self._get_card_due(
+                    review_states.get(
+                        self._question_review_key(question["question"]),
+                    ),
+                    now,
+                ),
+            )
+            for question in candidates
+        ]
+        due_candidates = [
+            question for question, due in scheduled_candidates if due <= now
+        ]
+        if due_candidates:
+            return random.choice(due_candidates)
+
+        if scheduled_candidates:
+            earliest_due = min(due for _, due in scheduled_candidates)
+            earliest_candidates = [
+                question for question, due in scheduled_candidates
+                if due == earliest_due
+            ]
+            return random.choice(earliest_candidates)
+        return random.choice(candidates)
+
+    @staticmethod
+    def _question_review_key(question_text):
+        return hashlib.sha256(question_text.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _get_card_due(card, default_due):
+        if not card or not card.get("due"):
+            return default_due
+        due = datetime.fromisoformat(card["due"])
+        if due.tzinfo is None:
+            due = due.replace(tzinfo=timezone.utc)
+        return due.astimezone(timezone.utc)
+
+    def _active_question_set_id(self, connection):
+        row = connection.execute(
+            "SELECT active_question_set FROM players WHERE username_key = %s",
+            (self.player_name.casefold(),),
+        ).fetchone()
+        if row is None or row[0] is None:
+            raise ValueError("This player does not have an active question set.")
+        return row[0]
+
+    def get_question_review_states(self):
+        key = self.player_name.casefold()
+        try:
+            with open_player_database() as connection:
+                set_id = self._active_question_set_id(connection)
+                rows = connection.execute(
+                    """
+                    SELECT question_key, card_json
+                    FROM question_review_cards
+                    WHERE username_key = %s AND question_set_id = %s
+                    """,
+                    (key, set_id),
+                ).fetchall()
+        except (
+            psycopg.errors.UndefinedTable,
+            psycopg.errors.UndefinedColumn,
+        ) as error:
+            raise QuestionReviewSchemaError(
+                QUESTION_REVIEW_MIGRATION_MESSAGE
+            ) from error
+        return {
+            question_key: json.loads(card_json)
+            for question_key, card_json in rows
+        }
+
+    def record_question_review(self, question_text, rating):
+        key = self.player_name.casefold()
+        question_key = self._question_review_key(question_text)
+        try:
+            with open_player_database() as connection:
+                set_id = self._active_question_set_id(connection)
+                row = connection.execute(
+                    """
+                    SELECT card_json FROM question_review_cards
+                    WHERE username_key = %s AND question_set_id = %s
+                        AND question_key = %s
+                    """,
+                    (key, set_id, question_key),
+                ).fetchone()
+                current_card = json.loads(row[0]) if row else None
+                next_card = nierva_spaced_repetition.advance_review_card(
+                    current_card,
+                    rating,
+                )
+                connection.execute(
+                    """
+                    INSERT INTO question_review_cards
+                        (username_key, question_set_id, question_key, card_json)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (username_key, question_set_id, question_key)
+                    DO UPDATE SET card_json = excluded.card_json
+                    """,
+                    (key, set_id, question_key, json.dumps(next_card)),
+                )
+        except (
+            psycopg.errors.UndefinedTable,
+            psycopg.errors.UndefinedColumn,
+        ) as error:
+            raise QuestionReviewSchemaError(
+                QUESTION_REVIEW_MIGRATION_MESSAGE
+            ) from error
+        return next_card
 
     def get_summary(self):
         return (
             f"Player: {self.player_name} | Score: {self._score} | "
-            f"Level: {self._level} | Clears: {self._completed_rounds}"
+            f"Adventure Rank: {self.check_level()} | "
+            f"Clears: {self._completed_rounds}"
         )
 
 
@@ -540,7 +674,6 @@ def ensure_current_save_data(save_data=None):
     return GameSaveData(
         player_name=getattr(save_data, "player_name", "Player 1"),
         starting_score=getattr(save_data, "_score", 0),
-        level=getattr(save_data, "_level", 1),
         completed_rounds=getattr(save_data, "_completed_rounds", 0),
         history=getattr(save_data, "_game_history", []),
     )

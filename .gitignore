@@ -3,6 +3,7 @@ __pycache__/
 .env
 .env.*
 !.env.example
+/.streamlit/secrets.toml
 nierva_players.sqlite3
 nierva_players.sqlite3-shm
 nierva_players.sqlite3-wal

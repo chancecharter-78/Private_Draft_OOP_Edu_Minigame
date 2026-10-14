@@ -10,7 +10,8 @@ from nierva_save_data import ensure_current_save_data
 
 
 CHOICE_CHARACTERS = string.ascii_uppercase + string.digits + "."
-MAX_COLUMNS_PER_ROW = 10
+PUNCTUATION_CHARACTERS = ".,!?+-*/#$@"
+DEFAULT_COLUMN_COUNT = 10
 
 
 def get_save_data():
@@ -60,7 +61,7 @@ def make_reveal_schedules(letter_count):
 
 def create_cipher(answer, round_number):
     cipher_answer = answer.replace(" ", "")
-    column_count = max(10, len(cipher_answer))
+    column_count = max(DEFAULT_COLUMN_COUNT, len(cipher_answer))
     active_columns = random_active_columns(column_count, len(cipher_answer))
     option_count = min(3 + round_number - 1, 10)
     options = []
@@ -72,12 +73,29 @@ def create_cipher(answer, round_number):
         correct_letter = cipher_answer[active_indexes.index(index)] if active else None
         if active:
             answer_letters[index] = correct_letter
-            other_letters = [
+            if correct_letter.isalpha() and correct_letter.isascii():
+                character_pool = string.ascii_uppercase
+            elif correct_letter.isdigit() and correct_letter.isascii():
+                character_pool = string.digits
+            elif correct_letter == ".":
+                character_pool = PUNCTUATION_CHARACTERS
+            else:
+                raise ValueError(
+                    f"Unsupported answer character for Bit Fit: {correct_letter!r}"
+                )
+
+            other_characters = [
                 character
-                for character in CHOICE_CHARACTERS
+                for character in character_pool
                 if character != correct_letter
             ]
-            choices = [correct_letter] + random.sample(other_letters, option_count - 1)
+            choices = [correct_letter]
+            choices.extend(
+                random.sample(
+                    other_characters,
+                    min(option_count - 1, len(other_characters)),
+                )
+            )
         else:
             choices = random.sample(list(CHOICE_CHARACTERS), option_count)
         random.shuffle(choices)
@@ -123,8 +141,8 @@ def setup_round():
 def init_bit_fit():
     st.session_state.bf_round = 1
     st.session_state.bf_over = False
+    st.session_state.bf_pending_initial_reveal = True
     setup_round()
-    nierva_timer.start_timer("bit_fit")
 
 
 def cycle_letter(index):
@@ -133,6 +151,12 @@ def cycle_letter(index):
     choices = st.session_state.bf_options[index]
     current = choices.index(st.session_state.bf_player[index])
     st.session_state.bf_player[index] = choices[(current + 1) % len(choices)]
+
+
+def get_next_choice(index):
+    choices = st.session_state.bf_options[index]
+    current = choices.index(st.session_state.bf_player[index])
+    return choices[(current + 1) % len(choices)]
 
 
 def get_revealed_count(elapsed):
@@ -158,7 +182,7 @@ def lose_round(message):
     st.session_state.bf_msg = message
     nierva_timer.stop_timer("bit_fit")
     nierva_combo_system.apply_soft_fail("Bit Fit")
-    nierva_progression.record_failure("Bit Fit")
+    nierva_progression.record_failure("Bit Fit", message)
 
 
 def submit_round():
@@ -171,6 +195,13 @@ def submit_round():
     answer = "".join(st.session_state.bf_player[index] for index in active_indexes)
     if answer != st.session_state.bf_cipher_answer:
         elapsed = nierva_timer.stop_timer("bit_fit")
+        nierva_progression.record_question_result(
+            st.session_state.bf_question,
+            answer,
+            False,
+            elapsed,
+            nierva_progression.QUESTION_TARGET_SECONDS["Bit Fit"],
+        )
         lose_round(
             f"❌ The letters decoded to {answer or '(empty)'}, not "
             f"{st.session_state.bf_answer}. Failed in {nierva_timer.format_time(elapsed)}."
@@ -178,6 +209,13 @@ def submit_round():
         return
 
     elapsed = nierva_timer.stop_timer("bit_fit")
+    nierva_progression.record_question_result(
+        st.session_state.bf_question,
+        answer,
+        True,
+        elapsed,
+        nierva_progression.QUESTION_TARGET_SECONDS["Bit Fit"],
+    )
     revealed_count = get_revealed_count(
         time.monotonic() - st.session_state.bf_reveal_started
     )
@@ -203,44 +241,41 @@ def submit_round():
 
     st.session_state.bf_round += 1
     setup_round()
+    nierva_timer.start_timer("bit_fit")
     st.session_state.bf_msg = f"🎉 Correct! Round {st.session_state.bf_round} started."
 
 
 def draw_cipher_columns():
     elapsed = time.monotonic() - st.session_state.bf_reveal_started
-    for start in range(0, st.session_state.bf_cols, MAX_COLUMNS_PER_ROW):
-        row_size = min(
-            MAX_COLUMNS_PER_ROW,
-            st.session_state.bf_cols - start,
-        )
-        columns = st.columns(row_size)
-        for offset, column in enumerate(columns):
-            index = start + offset
-            active = st.session_state.bf_active[index]
-            if not active:
-                column.markdown("### -")
-            else:
-                dash_start, hash_start, reveal_time = (
-                    st.session_state.bf_answer_reveal_stages[index]
-                )
-                if elapsed < dash_start:
-                    displayed_text = " "
-                elif elapsed < hash_start:
-                    displayed_text = "-"
-                elif elapsed < reveal_time:
-                    displayed_text = "#"
-                else:
-                    displayed_text = st.session_state.bf_answer_letters[index]
-                column.markdown(f"### {displayed_text}")
-
-            column.button(
-                st.session_state.bf_player[index],
-                key=f"bf_cycle_{index}",
-                on_click=cycle_letter,
-                args=(index,),
-                disabled=not active or st.session_state.bf_over,
-                width="stretch",
+    columns = st.columns(st.session_state.bf_cols)
+    for index, column in enumerate(columns):
+        active = st.session_state.bf_active[index]
+        if not active:
+            column.markdown("### -")
+        else:
+            dash_start, hash_start, reveal_time = (
+                st.session_state.bf_answer_reveal_stages[index]
             )
+            if elapsed < dash_start:
+                displayed_text = " "
+            elif elapsed < hash_start:
+                displayed_text = "-"
+            elif elapsed < reveal_time:
+                displayed_text = "#"
+            else:
+                displayed_text = st.session_state.bf_answer_letters[index]
+            column.markdown(f"### {displayed_text}")
+
+        column.button(
+            st.session_state.bf_player[index],
+            key=f"bf_cycle_{index}",
+            on_click=cycle_letter,
+            args=(index,),
+            disabled=not active or st.session_state.bf_over,
+            width="stretch",
+        )
+        if active:
+            column.caption(f"**{get_next_choice(index)}**", text_alignment = "center")
 
 
 @st.fragment(run_every=0.25)
@@ -263,11 +298,21 @@ def main():
     if "bf_round" not in st.session_state or "bf_options" not in st.session_state:
         init_bit_fit()
 
+    if st.session_state.get("game_result_ready", False):
+        nierva_progression.render_game_result("Bit Fit", save_data)
+        return
+    if not nierva_progression.render_start_gate("Bit Fit", "bit_fit"):
+        return
+    if st.session_state.get("bf_pending_initial_reveal", False):
+        st.session_state.bf_reveal_started = time.monotonic()
+        st.session_state.bf_pending_initial_reveal = False
+
     reset_col, score_col, combo_col, restart_col = st.columns([1, 1, 1, 1])
-    if restart_col.button("Restart Bit Fit"):
-        nierva_progression.reset_game("Bit Fit")
-        init_bit_fit()
-        st.rerun()
+    restart_col.button(
+        "Restart Bit Fit",
+        on_click=nierva_progression.start_game,
+        args=("Bit Fit",),
+    )
     reset_col.metric("Round", st.session_state.bf_round)
     score_col.metric("Saved Score", save_data.check_score())
     with combo_col:
@@ -278,19 +323,20 @@ def main():
     st.caption(
         f"Subject: {question['game']} | Difficulty: {question['difficulty']} | "
         f"{len(st.session_state.bf_options[0])} choices per column. "
-        "Active columns read left to right."
+        "Letter columns contain letters, number columns contain digits, and active "
+        "columns read left to right."
     )
 
     st.markdown("### 🔎 Letter Cipher Columns:")
-    render_live_bit_fit()
-    st.markdown("---")
-    st.markdown("### 🔀 Cycle the Letter in Each Active Column:")
-
     if not st.session_state.bf_over:
         st.button("⚡ Decode Word", on_click=submit_round, width="stretch")
+        render_live_bit_fit()
+        st.markdown("---")
+        st.markdown("### 🔀 Cycle the Letter in Each Active Column:")
         if st.session_state.bf_msg:
             st.success(st.session_state.bf_msg)
     else:
+        render_live_bit_fit()
         st.error(st.session_state.bf_msg)
 
 

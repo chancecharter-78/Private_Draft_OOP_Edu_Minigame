@@ -12,6 +12,30 @@ from nierva_save_data import ensure_current_save_data
 
 TOTAL_SLIDERS = 5
 MINIMUM_WINS = TOTAL_SLIDERS // 2 + 1
+SLIDER_REFRESH_SECONDS = 0.2
+SLIDER_STATE_KEYS = (
+    "slider_level",
+    "slider_wins",
+    "slider_history",
+    "slider_total_elapsed",
+    "slider_position",
+    "slider_direction",
+    "slider_over",
+    "slider_msg",
+    "slider_last_update",
+    "slider_pending_initial_start",
+    "slider_position_history",
+    "slider_question",
+    "slider_choices",
+    "slider_correct_index",
+    "slider_round_locked",
+)
+
+
+def reset_slider_timer():
+    nierva_timer.start_timer("slider")
+    st.session_state.slider_last_update = time.monotonic()
+    st.session_state.slider_over = False
 
 
 def get_save_data():
@@ -21,18 +45,23 @@ def get_save_data():
     return st.session_state.save_data
 
 
+def slider_state_initialized():
+    return all(key in st.session_state for key in SLIDER_STATE_KEYS)
+
+
 def init_slider():
-    nierva_progression.reset_game("Slider")
     st.session_state.slider_level = 1
     st.session_state.slider_wins = 0
     st.session_state.slider_history = []
+    st.session_state.slider_total_elapsed = 0.0
     st.session_state.slider_position = 50
     st.session_state.slider_direction = 1
     st.session_state.slider_over = False
     st.session_state.slider_msg = ""
     st.session_state.slider_last_update = time.monotonic()
+    st.session_state.slider_pending_initial_start = True
     st.session_state.slider_position_history = []
-    nierva_timer.start_timer("slider")
+    st.session_state.slider_round_locked = False
     set_slider_question()
 
 
@@ -56,11 +85,20 @@ def advance_position(position, direction, speed, elapsed):
     return 200 - phase, -1
 
 
-def get_stop_position(history, ticks_back=2):
+def get_stop_position(history):
     if not history:
         return None
-    history_index = max(0, len(history) - ticks_back - 1)
-    return history[history_index]
+    return history[-1]
+
+
+def is_position_within_correct_zone(position, correct_index, tick_grace):
+    zone_start = correct_index * 25
+    zone_end = (correct_index + 1) * 25
+    return (
+        max(0, zone_start - tick_grace)
+        <= position
+        <= min(100, zone_end + tick_grace)
+    )
 
 
 def update_marker():
@@ -87,37 +125,70 @@ def update_marker():
 
 
 def end_slider():
+    elapsed = st.session_state.slider_total_elapsed
     if st.session_state.slider_wins >= MINIMUM_WINS:
-        elapsed = nierva_timer.stop_timer("slider")
         message = (
             f"🎉 You cleared {st.session_state.slider_wins} of {TOTAL_SLIDERS} sliders "
             f"in {nierva_timer.format_time(elapsed)}!"
         )
+        st.session_state.slider_over = True
+        st.session_state.slider_completed_summary = {
+            "won": True,
+            "message": message,
+            "history": list(st.session_state.slider_history),
+            "score": get_save_data().check_score(),
+            "timer": nierva_timer.format_time(elapsed),
+        }
         nierva_progression.finish_game("Slider", message)
         return
 
     st.session_state.slider_over = True
-    elapsed = nierva_timer.stop_timer("slider")
     st.session_state.slider_msg = (
         f"❌ You cleared {st.session_state.slider_wins} of {TOTAL_SLIDERS} sliders. "
         f"You needed {MINIMUM_WINS} to continue. "
         f"Game over after {nierva_timer.format_time(elapsed)}."
     )
-    nierva_progression.record_failure("Slider")
+    st.session_state.slider_completed_summary = {
+        "won": False,
+        "message": st.session_state.slider_msg,
+        "history": list(st.session_state.slider_history),
+        "score": get_save_data().check_score(),
+        "timer": nierva_timer.format_time(elapsed),
+    }
+    nierva_progression.record_failure("Slider", st.session_state.slider_msg)
 
 
-def finish_round(won):
+def finish_round(won, selected_index=None):
     level = st.session_state.slider_level
     question = st.session_state.slider_question
     choices = st.session_state.slider_choices
     position = st.session_state.slider_position
     elapsed = nierva_timer.get_elapsed("slider")
+    nierva_timer.stop_timer("slider")
+    st.session_state.slider_total_elapsed += elapsed
+    if selected_index is None:
+        selected_index = min(int(position // 25), 3)
+    selected_answer = choices[selected_index]
+    correct_answer = question["correct_answer"]
+    automated_rating = nierva_progression.record_question_result(
+        question,
+        selected_answer,
+        won,
+        elapsed,
+        nierva_progression.QUESTION_TARGET_SECONDS["Slider"],
+    )
     st.session_state.slider_history.append({
         "level": level,
         "question": question["question"],
         "choices": choices,
         "position": position,
         "won": won,
+        "selected_answer": selected_answer,
+        "correct_answer": correct_answer,
+        "selected_index": selected_index,
+        "correct_index": st.session_state.slider_correct_index,
+        "elapsed_seconds": elapsed,
+        "automated_rating": automated_rating,
     })
 
     if won:
@@ -149,20 +220,41 @@ def finish_round(won):
     st.session_state.slider_position = 50
     st.session_state.slider_direction = 1
     set_slider_question()
+    st.session_state.slider_round_locked = False
+    reset_slider_timer()
 
 
 def lock_slider():
-    if st.session_state.slider_over:
+    if (
+        st.session_state.slider_over
+        or st.session_state.get("slider_round_locked", False)
+    ):
         return
-    previous_tick = get_stop_position(
-        st.session_state.get("slider_position_history", [])
-    )
-    if previous_tick is not None:
-        position, direction = previous_tick
+    st.session_state.slider_round_locked = True
+    history = st.session_state.get("slider_position_history", [])
+    latest_tick = get_stop_position(history)
+    if latest_tick is not None:
+        position, direction = latest_tick
         st.session_state.slider_position = position
         st.session_state.slider_direction = direction
     selected_index = min(int(st.session_state.slider_position // 25), 3)
-    finish_round(selected_index == st.session_state.slider_correct_index)
+    correct_index = st.session_state.slider_correct_index
+    tick_grace = (
+        abs(history[-1][0] - history[-2][0])
+        if len(history) > 1
+        else 0
+    )
+    within_grace = is_position_within_correct_zone(
+        st.session_state.slider_position,
+        correct_index,
+        tick_grace,
+    )
+    if selected_index == correct_index:
+        finish_round(True)
+    elif within_grace:
+        finish_round(True, selected_index=correct_index)
+    else:
+        finish_round(False)
 
 
 def render_slider_bar(choices, position):
@@ -188,73 +280,63 @@ def render_slider_bar(choices, position):
     )
 
 
-@st.fragment(run_every=0.1)
+@st.fragment(run_every=SLIDER_REFRESH_SECONDS)
 def render_active_slider():
     update_marker()
     st.metric("Game Time", nierva_timer.format_time(nierva_timer.get_elapsed("slider")))
-    nierva_combo_system.render_combo_status("Combo")
+    nierva_combo_system.render_combo_status("Combo", visible=False)
     render_slider_bar(
         st.session_state.slider_choices,
         st.session_state.slider_position,
     )
 
 
-def render_completed_slider_history():
-    for completed in st.session_state.slider_history:
-        result = "cleared" if completed["won"] else "missed"
-        st.caption(f"Level {completed['level']} {result}")
-        st.caption(completed["question"])
-        render_slider_bar(completed["choices"], completed["position"])
-
-
-def render_slider_controls():
-    st.button(
-        "🛑 STOP SLIDER (LMB)",
-        on_click=lock_slider,
-        width="stretch",
-    )
-
-
 def render_game_over():
-    level_col, score_col, timer_col = st.columns(3)
-    level_col.metric(
-        "Level",
-        f"{st.session_state.slider_level}/{TOTAL_SLIDERS}",
-    )
-    score_col.metric("Saved Score", get_save_data().check_score())
-    timer_col.metric(
-        "Game Time",
-        nierva_timer.format_time(nierva_timer.get_elapsed("slider")),
-    )
-    st.error(st.session_state.slider_msg)
-    st.button("New Game", on_click=init_slider, key="slider_new_game_after_game")
+    nierva_progression.render_game_result("Slider", get_save_data())
 
 
 def main():
-    st.write("# 🎚️ Slider Precision Minigame")
+    st.write("# 🎚️ Slider Minigame")
     st.caption("Answer each question by stopping the marker over the correct choice.")
 
     save_data = get_save_data()
-    if "slider_level" not in st.session_state:
+    if not slider_state_initialized():
         init_slider()
+
+    if st.session_state.get("game_result_ready", False):
+        render_game_over()
+        return
+    if not nierva_progression.render_start_gate("Slider", "slider"):
+        return
+    if st.session_state.get("slider_pending_initial_start", False):
+        st.session_state.slider_last_update = time.monotonic()
+        st.session_state.slider_pending_initial_start = False
 
     level_col, score_col, new_game_col = st.columns([1, 1, 1])
     level_col.metric("Level", f"{st.session_state.slider_level}/{TOTAL_SLIDERS}")
     score_col.metric("Saved Score", save_data.check_score())
-    if new_game_col.button("New Game", key="slider_new_game_top"):
-        init_slider()
-        st.rerun()
-
-    render_completed_slider_history()
+    new_game_col.button(
+        "New Game",
+        key="slider_new_game_top",
+        on_click=nierva_progression.start_game,
+        args=("Slider",),
+    )
 
     if not st.session_state.slider_over:
         level = st.session_state.slider_level
         question = st.session_state.slider_question
         st.caption(f"Current Level {level}")
         st.info(question["question"])
-        st.caption(f"Subject: {question['game']} | Difficulty: {question['difficulty']}")
+        st.caption(
+            f"Subject: {question['game']} | Difficulty: {question['difficulty']}"
+        )
+        st.button(
+            "🛑 STOP SLIDER (LMB)",
+            key=f"slider_stop_button_{level}",
+            on_click=lock_slider,
+            width="stretch",
+        )
         render_active_slider()
-        render_slider_controls()
         if st.session_state.slider_msg:
             st.success(st.session_state.slider_msg)
     else:

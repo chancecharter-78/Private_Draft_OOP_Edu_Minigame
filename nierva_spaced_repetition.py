@@ -1,21 +1,32 @@
-"""Stateless, isolated spaced-repetition helpers.
+"""Anki-style rating and FSRS card scheduling helpers.
 
-These functions only model the timing and memory-state transitions for a single
-review item and do not depend on any app-global state.
+Rating conversion is stateless; persisted card scheduling is delegated to FSRS.
 """
 
 from __future__ import annotations
 
+from datetime import date, datetime, time, timezone
+
+from fsrs import Card, Rating, Scheduler
 
 def map_performance_to_rating(won: bool, time_taken: float, target_seconds: float) -> int:
     """Translate automated mini-game performance into Anki-style rating values."""
     if not won:
         return 1
+    if target_seconds <= 0:
+        raise ValueError("target_seconds must be greater than zero.")
     if time_taken <= (target_seconds * 0.5):
         return 4
     if time_taken <= target_seconds:
         return 3
     return 2
+
+
+def combine_ratings(automated_rating: int, user_rating: int) -> int:
+    """Apply the player's game-wide rating as a conservative ceiling."""
+    if automated_rating not in (1, 2, 3, 4) or user_rating not in (1, 2, 3, 4):
+        raise ValueError("ratings must be between 1 (Again) and 4 (Easy).")
+    return min(automated_rating, user_rating)
 
 
 def advance_item_state(item_state: dict | None, rating: int) -> dict:
@@ -79,3 +90,48 @@ def advance_item_state(item_state: dict | None, rating: int) -> dict:
         "interval": 4,
         "ease_factor": min(3.0, ease_factor + 0.15),
     }
+
+
+def advance_review_card(card: dict | None, rating: int, reviewed_on: date | None = None) -> dict:
+    """Use FSRS to schedule a card and return its JSON-serializable state."""
+    try:
+        fsrs_rating = Rating(rating)
+    except ValueError as error:
+        raise ValueError("rating must be between 1 (Again) and 4 (Easy).") from error
+
+    review_datetime = None
+    if reviewed_on is not None:
+        review_datetime = datetime.combine(
+            reviewed_on,
+            time.min,
+            tzinfo=timezone.utc,
+        )
+
+    if card:
+        card_data = {
+            key: value
+            for key, value in card.items()
+            if key in {
+                "card_id",
+                "state",
+                "step",
+                "stability",
+                "difficulty",
+                "due",
+                "last_review",
+            }
+        }
+        fsrs_card = Card.from_dict(card_data)
+    elif review_datetime is not None:
+        fsrs_card = Card(due=review_datetime)
+    else:
+        fsrs_card = Card()
+    scheduler = Scheduler(enable_fuzzing=False)
+    updated_card, _ = scheduler.review_card(
+        fsrs_card,
+        fsrs_rating,
+        review_datetime=review_datetime,
+    )
+    updated_state = updated_card.to_dict()
+    updated_state["last_rating"] = rating
+    return updated_state
