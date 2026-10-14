@@ -1,18 +1,5 @@
-import streamlit as st
+"""Compatibility imports for the leaderboard view."""
 
-from nierva_save_data import get_leaderboard
+from views.leaderboard_view import main
 
-
-def main():
-    st.title("🏆 Shared Leaderboard")
-    st.caption("Scores are stored in the shared Supabase database.")
-
-    players = get_leaderboard(limit=100)
-    if players:
-        st.dataframe(players, hide_index=True, width="stretch")
-    else:
-        st.info("No players have been added to the leaderboard yet.")
-
-
-if __name__ == "__main__":
-    main()
+__all__ = ["main"]

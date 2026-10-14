@@ -1,15 +1,18 @@
 import streamlit as st
 import psycopg
 
-import nierva_home
-import nierva_about
-import nierva_source
-import nierva_csvdb
 import nierva_bit_fit
 import nierva_slider
 import nierva_hacking
-import nierva_leaderboard
 import nierva_progression
+from controllers.application_controller import ApplicationController
+from views import (
+    about_view as nierva_about,
+    home_view as nierva_home,
+    leaderboard_view as nierva_leaderboard,
+    question_sets_view as nierva_csvdb,
+    source_view as nierva_source,
+)
 
 from nierva_save_data import (
     QuestionReviewSchemaError,
@@ -181,10 +184,8 @@ def select_game():
 
 def load_page():
     page = st.session_state.get("page", "Homepage")
-    if page in GAME_PAGES:
-        GAME_PAGES[page]()
-    else:
-        INFO_PAGES.get(page, nierva_home.main)()
+    controller = ApplicationController(GAME_PAGES, INFO_PAGES, nierva_home.main)
+    controller.render_page(page)
 
 
 def format_database_error(error):

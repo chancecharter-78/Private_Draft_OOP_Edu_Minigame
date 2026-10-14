@@ -10,7 +10,6 @@ from unittest.mock import patch
 import nierva_app
 import nierva_bit_fit
 import nierva_combo_system
-import nierva_csvdb
 import nierva_hacking
 import nierva_progression
 import nierva_progression_engine
@@ -20,6 +19,9 @@ import nierva_spaced_repetition
 import nierva_timer
 import psycopg
 import streamlit as st
+from controllers.application_controller import ApplicationController
+from repositories import player_data_repository
+from views import question_sets_view
 
 
 VALID_CSV = """Game, Question ,Correct Answer,Wrong Answer 1,Wrong Answer 2,Wrong Answer 3,Difficulty
@@ -210,29 +212,49 @@ class QuestionDataTests(unittest.TestCase):
         self.assertEqual(sum(column.caption.call_count for column in columns), 11)
 
 
+class ApplicationControllerTests(unittest.TestCase):
+    def test_routes_game_and_info_pages_to_their_views(self):
+        game_view = unittest.mock.Mock()
+        info_view = unittest.mock.Mock()
+        default_view = unittest.mock.Mock()
+        controller = ApplicationController(
+            {"Slider": game_view},
+            {"Homepage": info_view},
+            default_view,
+        )
+
+        controller.render_page("Slider")
+        controller.render_page("Homepage")
+        controller.render_page("Unknown")
+
+        game_view.assert_called_once_with()
+        info_view.assert_called_once_with()
+        default_view.assert_called_once_with()
+
+
 class QuestionSetWidgetTests(unittest.TestCase):
     def test_active_set_callback_ignores_missing_widget_state(self):
         with (
-            patch.object(nierva_csvdb, "st") as streamlit,
-            patch.object(nierva_csvdb, "set_active_question_set") as set_active,
+            patch.object(question_sets_view, "st") as streamlit,
+            patch.object(question_sets_view, "set_active_question_set") as set_active,
         ):
             streamlit.session_state = {"username": "Owner"}
 
-            nierva_csvdb.set_active_set()
+            question_sets_view.set_active_set()
 
         set_active.assert_not_called()
 
     def test_active_set_callback_rejects_non_id_values(self):
         with (
-            patch.object(nierva_csvdb, "st") as streamlit,
-            patch.object(nierva_csvdb, "set_active_question_set") as set_active,
+            patch.object(question_sets_view, "st") as streamlit,
+            patch.object(question_sets_view, "set_active_question_set") as set_active,
         ):
             streamlit.session_state = {
                 "username": "Owner",
-                nierva_csvdb.ACTIVE_SET_STATE_KEY: "Science",
+                question_sets_view.ACTIVE_SET_STATE_KEY: "Science",
             }
 
-            nierva_csvdb.set_active_set()
+            question_sets_view.set_active_set()
 
         streamlit.error.assert_called_once()
         set_active.assert_not_called()
@@ -412,7 +434,7 @@ class PlayerDataTests(unittest.TestCase):
             yield connection
 
         with patch.object(
-            nierva_save_data,
+            player_data_repository,
             "open_player_database",
             missing_review_table,
         ):

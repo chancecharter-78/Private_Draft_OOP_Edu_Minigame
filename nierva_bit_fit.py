@@ -3,7 +3,7 @@ import streamlit as st
 import random
 import string
 import time
-import nierva_combo_system
+from controllers import combo_controller as nierva_combo_system
 import nierva_progression
 import nierva_timer
 from nierva_save_data import ensure_current_save_data
