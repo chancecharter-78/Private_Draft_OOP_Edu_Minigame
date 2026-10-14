@@ -4,6 +4,7 @@ from html import escape
 
 import streamlit as st
 
+import nierva_combo_system
 import nierva_progression
 import nierva_timer
 from nierva_save_data import ensure_current_save_data
@@ -110,6 +111,7 @@ def finish_round(won):
     question = st.session_state.slider_question
     choices = st.session_state.slider_choices
     position = st.session_state.slider_position
+    elapsed = nierva_timer.get_elapsed("slider")
     st.session_state.slider_history.append({
         "level": level,
         "question": question["question"],
@@ -120,14 +122,21 @@ def finish_round(won):
 
     if won:
         answer = choices[st.session_state.slider_correct_index]
+        reward = nierva_combo_system.apply_win(
+            "Slider",
+            elapsed_seconds=elapsed,
+            correct_questions=st.session_state.slider_wins + 1,
+        )
         get_save_data().record_clear(
             "Slider Minigame",
             level,
             f"Answered {answer} at {position:.1f}%",
+            points=reward["final_points"],
         )
         st.session_state.slider_wins += 1
         st.session_state.slider_msg = f"✅ Correct! Level {level} cleared."
     else:
+        nierva_combo_system.apply_soft_fail("Slider")
         st.session_state.slider_msg = (
             f"❌ Incorrect choice. The answer was {question['correct_answer']}."
         )
@@ -183,6 +192,7 @@ def render_slider_bar(choices, position):
 def render_active_slider():
     update_marker()
     st.metric("Game Time", nierva_timer.format_time(nierva_timer.get_elapsed("slider")))
+    nierva_combo_system.render_combo_status("Combo")
     render_slider_bar(
         st.session_state.slider_choices,
         st.session_state.slider_position,

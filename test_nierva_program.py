@@ -6,12 +6,17 @@ from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
 
+import nierva_app
 import nierva_bit_fit
+import nierva_combo_system
 import nierva_hacking
+import nierva_progression_engine
 import nierva_save_data
-import psycopg
 import nierva_slider
+import nierva_spaced_repetition
 import nierva_timer
+import psycopg
+import streamlit as st
 
 
 VALID_CSV = """Game, Question ,Correct Answer,Wrong Answer 1,Wrong Answer 2,Wrong Answer 3,Difficulty
@@ -291,6 +296,45 @@ class GameRuleTests(unittest.TestCase):
     def test_timer_rounds_to_nearest_tenth(self):
         self.assertEqual(nierva_timer.format_time(2.3), "00:02.3")
         self.assertEqual(nierva_timer.format_time(4.6), "00:04.6")
+
+    def test_homepage_navigation_clears_game_state(self):
+        st.session_state.clear()
+        st.session_state.page = "Slider"
+        st.session_state.project = True
+        st.session_state.game = True
+
+        nierva_app.set_page("Homepage", True)
+
+        self.assertEqual(st.session_state.page, "Homepage")
+        self.assertFalse(st.session_state.project)
+        self.assertFalse(st.session_state.game)
+
+
+class ComboSystemTests(unittest.TestCase):
+    def setUp(self):
+        st.session_state.clear()
+
+    def test_combo_tiers_and_soft_fail_decay(self):
+        self.assertAlmostEqual(nierva_combo_system.calculate_combo_multiplier(0), 1.00)
+        self.assertAlmostEqual(nierva_combo_system.calculate_combo_multiplier(3), 1.05)
+        self.assertAlmostEqual(nierva_combo_system.calculate_combo_multiplier(12), 1.35)
+
+        st.session_state.combo_streak = 8
+        st.session_state.combo_multiplier = 1.15
+        result = nierva_combo_system.apply_soft_fail("Slider")
+        self.assertEqual(result["streak"], 3)
+        self.assertAlmostEqual(result["multiplier"], 1.05)
+
+    def test_spaced_repetition_and_progression_are_stateless(self):
+        item = {"state": "LEARNING", "step_index": 1, "interval": 1, "ease_factor": 2.5}
+        next_item = nierva_spaced_repetition.advance_item_state(item, 3)
+        self.assertEqual(next_item["state"], "REVIEW")
+        self.assertEqual(next_item["interval"], 1)
+
+        profile = {"current_rank": 1, "current_points": 200, "is_locked": False}
+        next_profile = nierva_progression_engine.apply_points_to_profile(profile, 400)
+        self.assertEqual(next_profile["current_rank"], 3)
+        self.assertEqual(next_profile["current_points"], 350)
 
 
 if __name__ == "__main__":

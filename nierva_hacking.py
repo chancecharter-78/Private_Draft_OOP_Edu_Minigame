@@ -2,6 +2,7 @@ import random
 
 import streamlit as st
 
+import nierva_combo_system
 import nierva_progression
 import nierva_timer
 from nierva_save_data import ensure_current_save_data
@@ -113,6 +114,7 @@ def pick_word():
         st.session_state.hack_win = True
         st.session_state.hack_over = True
         elapsed = nierva_timer.stop_timer("hacking")
+        reward = nierva_combo_system.apply_win("Hacking", elapsed_seconds=elapsed)
         message = (
             f"🎉 Decryption Complete in {nierva_timer.format_time(elapsed)}! "
             f"Target sequence was {st.session_state.hack_password}."
@@ -121,6 +123,7 @@ def pick_word():
             "Terminal Hacking",
             1,
             f"Password decrypted in {nierva_timer.format_time(elapsed)}",
+            points=reward["final_points"],
         )
         if nierva_progression.record_success("Hacking", message):
             return
@@ -128,7 +131,10 @@ def pick_word():
         init_hacking()
         st.session_state.hack_notice = message
     elif st.session_state.hack_attempts <= 0:
+        nierva_combo_system.apply_hard_fail("Hacking")
         lose_round(f"💀 Lockout Triggered! Sequence was {st.session_state.hack_password}.")
+    else:
+        nierva_combo_system.apply_soft_fail("Hacking")
 
 
 def main():
@@ -139,7 +145,7 @@ def main():
     if "hack_password" not in st.session_state:
         init_hacking()
 
-    attempts_col, score_col, time_col, reset_col = st.columns([1, 1, 1.2, 1])
+    attempts_col, score_col, time_col, combo_col, reset_col = st.columns([1, 1, 1.2, 1, 1])
     reset_col.button(
         "Reset Terminal",
         on_click=restart_hacking,
@@ -152,6 +158,8 @@ def main():
     score_col.metric("Saved Score", save_data.check_score())
     with time_col:
         nierva_timer.render_timer_display("hacking", label="Decryption Time")
+    with combo_col:
+        nierva_combo_system.render_combo_status("Combo")
 
     main_col, log_col = st.columns([1.2, 1])
     with main_col:

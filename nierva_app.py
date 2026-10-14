@@ -157,11 +157,15 @@ def start_session(username, save_data):
 def sign_out():
     st.session_state.clear()
 
-def set_page(page):
+def set_page(page, reset_game=False):
     if page in GAME_PAGES:
         nierva_progression.start_game(page)
         return
+
     st.session_state.page = page
+    if reset_game:
+        st.session_state.project = False
+        st.session_state.game = False
 
 def start_minigames():
     current_game = st.session_state.get("flow_game")
@@ -206,7 +210,7 @@ def main():
             st.button(
                 "🏠 Homepage",
                 on_click=set_page,
-                args=("Homepage",),
+                args=("Homepage", True),
                 width="stretch",
             )
         else:

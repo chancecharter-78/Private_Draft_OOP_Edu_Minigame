@@ -3,6 +3,7 @@ import streamlit as st
 import random
 import string
 import time
+import nierva_combo_system
 import nierva_progression
 import nierva_timer
 from nierva_save_data import ensure_current_save_data
@@ -156,6 +157,7 @@ def lose_round(message):
     st.session_state.bf_over = True
     st.session_state.bf_msg = message
     nierva_timer.stop_timer("bit_fit")
+    nierva_combo_system.apply_soft_fail("Bit Fit")
     nierva_progression.record_failure("Bit Fit")
 
 
@@ -175,14 +177,17 @@ def submit_round():
         )
         return
 
+    elapsed = nierva_timer.stop_timer("bit_fit")
     revealed_count = get_revealed_count(
         time.monotonic() - st.session_state.bf_reveal_started
     )
-    points = calculate_points(
-        st.session_state.bf_round,
-        revealed_count,
-        len(active_indexes),
+    reward = nierva_combo_system.apply_win(
+        "Bit Fit",
+        elapsed_seconds=elapsed,
+        revealed_count=revealed_count,
+        total_letters=len(active_indexes),
     )
+    points = reward["final_points"]
 
     save_data = get_save_data()
     save_data.record_clear(
@@ -258,13 +263,15 @@ def main():
     if "bf_round" not in st.session_state or "bf_options" not in st.session_state:
         init_bit_fit()
 
-    reset_col, score_col, restart_col = st.columns([1, 1, 1])
+    reset_col, score_col, combo_col, restart_col = st.columns([1, 1, 1, 1])
     if restart_col.button("Restart Bit Fit"):
         nierva_progression.reset_game("Bit Fit")
         init_bit_fit()
         st.rerun()
     reset_col.metric("Round", st.session_state.bf_round)
     score_col.metric("Saved Score", save_data.check_score())
+    with combo_col:
+        nierva_combo_system.render_combo_status("Combo")
 
     question = st.session_state.bf_question
     st.info(question["question"])
