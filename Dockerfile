@@ -12,4 +12,4 @@ COPY . .
 EXPOSE 8080
 
 # Crucial Streamlit flags to prevent WebSocket errors and connection issues on Cloud Run
-CMD ["sh", "-c", "streamlit run app.py --server.port=${PORT} --server.address=0.0.0.0 --server.enableCORS=false --server.enableWebsocketCompression=false --server.enableXsrfProtection=false"]
+CMD ["sh", "-c", "streamlit run nierva_app.py --server.port=${PORT} --server.address=0.0.0.0 --server.enableCORS=false --server.enableWebsocketCompression=false --server.enableXsrfProtection=false"]
