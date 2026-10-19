@@ -13,14 +13,14 @@ def list_servers(username):
     now = datetime.now(timezone.utc)
     return [
         server.build_server_status(
-            server["id"],
-            server["name"],
-            server["is_default"],
-            server["question_sets"],
-            server["review_cards"],
+            server_record["id"],
+            server_record["name"],
+            server_record["is_default"],
+            server_record["question_sets"],
+            server_record["review_cards"],
             now,
         )
-        for server in server_repository.fetch_server_overview(
+        for server_record in server_repository.fetch_server_overview(
             username.casefold()
         )
     ]
