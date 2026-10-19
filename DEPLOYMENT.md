@@ -14,10 +14,14 @@ to users.
    database that already contains app data.
 3. Run the review-card migration in the same project:
    [`supabase/migrations/20261014000000_create_question_review_cards.sql`](./supabase/migrations/20261014000000_create_question_review_cards.sql).
-   This adds a new table for per-player, per-question-set scheduling state; it
-   does not replace or modify existing players, question sets, or game progress.
-   For an existing installation with the core tables, run only this migration.
-4. In the project's **Connect** dialog, copy a PostgreSQL connection URI and
+   This adds a table for per-player, per-question-set scheduling state.
+4. Run the server migration:
+   [`supabase/migrations/20261018000000_create_servers.sql`](./supabase/migrations/20261018000000_create_servers.sql).
+   It creates three servers for existing accounts, connects each default
+   server to that account's active question set, and moves existing review
+   cards to that default server. For a database that already has the core and
+   review-card tables, run only this new migration.
+5. In the project's **Connect** dialog, copy a PostgreSQL connection URI and
    make sure it includes `sslmode=require`.
 
 New accounts and game progress are written straight to this Supabase database.
@@ -38,11 +42,10 @@ reconnect to the same Supabase database instead of relying on the app's local
 filesystem.
 
 If a game reports that a required database table is missing, first verify that
-`SUPABASE_DB_URL` points to the project containing the existing app data. For
-an existing installation whose core tables are present, apply only the
-review-card migration from step 3. Do not rerun the initial schema setup on a
-database containing data; it is intended only for a new, empty database. The
-app does not automatically run migrations.
+`SUPABASE_DB_URL` points to the project containing the existing app data. Apply
+the pending migrations from steps 3 and 4 as applicable. Do not rerun the
+initial schema setup on a database containing data; it is intended only for a
+new, empty database. The app does not automatically run migrations.
 
 ## Install on a persistent Linux host
 
