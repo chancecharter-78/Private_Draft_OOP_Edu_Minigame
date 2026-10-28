@@ -5,10 +5,6 @@ from Controller import question_sets as controller
 from Model import question_set
 
 
-def format_editor_target(set_id, names_by_id):
-    return "New question set" if set_id is None else names_by_id[set_id]
-
-
 def render_help():
     with st.expander("CSV format and AI prompt"):
         st.markdown(
@@ -44,18 +40,59 @@ def render_help():
         st.code(question_set.get_ai_prompt(), language="text", wrap_lines=True)
 
 
-def render_upload_tab():
-    st.subheader("Load a CSV file into the editor")
+def render_new_question_set_tab(username):
+    controller.prepare_new_question_set_state()
+    st.subheader("Create a new question set")
     uploaded_file = st.file_uploader(
-        "Choose a CSV file",
+        "Load a CSV file to start with (optional)",
         type=["csv"],
-        key="question_set_upload_file",
+        key="new_question_set_upload_file",
     )
-    if st.button("Load File", disabled=uploaded_file is None):
+    if st.button("Load CSV into new set", disabled=uploaded_file is None):
         if uploaded_file is not None:
-            error = controller.load_uploaded_csv(uploaded_file)
+            error = controller.load_new_question_set_csv(uploaded_file)
             if error:
                 st.error(error)
+            else:
+                st.rerun()
+
+    notice = st.session_state.get("new_question_set_notice")
+    if notice:
+        if st.session_state.get("new_question_set_notice_type") == "success":
+            st.success(notice)
+        else:
+            st.info(notice)
+
+    st.text_input(
+        "New question set name",
+        max_chars=60,
+        key="new_question_set_name",
+    )
+    st.text_area(
+        "New question set CSV",
+        key="new_question_set_csv",
+        height=360,
+        help="Paste or type the complete CSV, including its header row.",
+    )
+    is_valid, validation_message = question_set.validate_question_csv(
+        st.session_state.new_question_set_csv
+    )
+    if is_valid:
+        st.success(validation_message)
+    else:
+        st.error(validation_message)
+
+    if st.button(
+        "Save new question set",
+        type="primary",
+        disabled=not is_valid,
+    ):
+        status, message = controller.save_new_question_set(username)
+        if status == "error":
+            st.error(message)
+        else:
+            st.rerun()
+
     st.download_button(
         "Download CSV template",
         data=question_set.get_csv_template(),
@@ -64,21 +101,15 @@ def render_upload_tab():
     )
 
 
-def render_editor_tab(username, names_by_id):
-    target_id = st.selectbox(
-        "Editing",
-        options=[None, *names_by_id],
-        format_func=lambda set_id: format_editor_target(set_id, names_by_id),
-        key="question_editor_target",
-    )
-    controller.sync_editor_to_target(username, target_id, names_by_id)
-
+def render_editor_tab(username, selected_id, names_by_id):
+    controller.sync_editor_to_target(username, selected_id, names_by_id)
     if st.session_state.get("question_editor_notice"):
         if st.session_state.get("question_editor_notice_type") == "success":
             st.success(st.session_state.question_editor_notice)
         else:
             st.info(st.session_state.question_editor_notice)
 
+    st.subheader(f"Editing {names_by_id[selected_id]}")
     st.text_input(
         "Question set name",
         max_chars=60,
@@ -98,13 +129,12 @@ def render_editor_tab(username, names_by_id):
     else:
         st.error(validation_message)
 
-    save_label = (
-        "Save changes to question set"
-        if target_id is not None
-        else "Save as new question set"
-    )
-    if st.button(save_label, type="primary", disabled=not is_valid):
-        status, message = controller.save_editor(username, target_id)
+    if st.button(
+        "Save changes to question set",
+        type="primary",
+        disabled=not is_valid,
+    ):
+        status, message = controller.save_editor(username, selected_id)
         if status == "stale":
             st.error(message)
             st.rerun()
@@ -162,34 +192,33 @@ def main():
 
     username = st.session_state.username
     question_sets = controller.list_question_sets(username)
-    if not question_sets:
-        st.error("This account does not have a question set yet.")
-        return
-
     names_by_id = {item["id"]: item["name"] for item in question_sets}
-    selected_id = st.selectbox(
-        "Browse question sets",
-        options=list(names_by_id),
-        format_func=lambda set_id: names_by_id[set_id],
-        key="question_set_browse_id",
-    )
+    selected_id = None
+    if question_sets:
+        selected_id = st.selectbox(
+            "Browse question sets",
+            options=list(names_by_id),
+            format_func=lambda set_id: names_by_id[set_id],
+            key="question_set_browse_id",
+        )
+        csv_text = controller.get_question_set_csv(username, selected_id)
+        st.download_button(
+            "Download a copy",
+            data=csv_text,
+            file_name=f"{names_by_id[selected_id]}.csv",
+            mime="text/csv",
+            width="stretch",
+        )
+        controller.prepare_editor_state(username, selected_id, names_by_id)
 
-    csv_text = controller.get_question_set_csv(username, selected_id)
-    st.download_button(
-        "Download a copy",
-        data=csv_text,
-        file_name=f"{names_by_id[selected_id]}.csv",
-        mime="text/csv",
-        width="stretch",
-    )
-
-    controller.prepare_editor_state(username, selected_id, names_by_id)
-
-    upload_tab, editor_tab = st.tabs(["Upload CSV", "Paste or edit CSV"])
-    with upload_tab:
-        render_upload_tab()
-    with editor_tab:
-        render_editor_tab(username, names_by_id)
+    edit_tab, new_tab = st.tabs(["Edit existing set", "Add new set"])
+    with edit_tab:
+        if selected_id is None:
+            st.info("There are no saved question sets to edit yet.")
+        else:
+            render_editor_tab(username, selected_id, names_by_id)
+    with new_tab:
+        render_new_question_set_tab(username)
 
     render_delete_section(username, question_sets, names_by_id)
 

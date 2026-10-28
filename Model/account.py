@@ -43,7 +43,7 @@ def clean_username(username):
     if len(name) > 20:
         raise ValueError("Usernames must be 20 characters or fewer.")
     if not all(char.isalnum() or char in " _-" for char in name):
-        raise ValueError("Use only letters, numbers, spaces, hyphens, or underscores.")
+        raise ValueError("Use only letters, numbers, spaces, hyphens, or underscores when naming accounts.")
     return name
 
 

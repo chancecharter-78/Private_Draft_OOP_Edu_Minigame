@@ -5,7 +5,19 @@ from datetime import date, datetime, time, timezone
 
 from fsrs import Card, Rating, Scheduler
 
+try:
+    from Model import logic_rules
+except Exception:  # engine unavailable: use the Python rules below
+    logic_rules = None
+
 def map_performance_to_rating(won: bool, time_taken: float, target_seconds: float) -> int:
+    if logic_rules is not None:
+        try:
+            return logic_rules.performance_rating(
+                won, time_taken, target_seconds
+            )
+        except logic_rules.LogicEngineError:
+            pass
     if not won:
         return 1
     if target_seconds <= 0:

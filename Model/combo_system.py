@@ -1,6 +1,11 @@
 
 from __future__ import annotations
 
+try:
+    from Model import logic_rules
+except Exception:  # engine unavailable: use the Python rules below
+    logic_rules = None
+
 
 TIER_MULTIPLIERS = {
     (0, 2): 1.00,
@@ -12,6 +17,11 @@ TIER_MULTIPLIERS = {
 
 
 def calculate_combo_multiplier(streak: int) -> float:
+    if logic_rules is not None:
+        try:
+            return logic_rules.combo_multiplier(streak)
+        except logic_rules.LogicEngineError:
+            pass
     if streak >= 12:
         return 1.35
     if streak >= 9:
@@ -24,6 +34,11 @@ def calculate_combo_multiplier(streak: int) -> float:
 
 
 def streak_for_multiplier(multiplier: float) -> int:
+    if logic_rules is not None:
+        try:
+            return logic_rules.streak_for_multiplier(multiplier)
+        except logic_rules.LogicEngineError:
+            pass
     if multiplier >= 1.35:
         return 12
     if multiplier >= 1.25:

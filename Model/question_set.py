@@ -149,7 +149,7 @@ def validate_set_name(name):
     if len(name) > MAX_SET_NAME_LENGTH:
         return "Question set names must be 60 characters or fewer."
     if not all(char.isalnum() or char in " _-." for char in name):
-        return "Use only letters, numbers, spaces, periods, hyphens, or underscores."
+        return "Use only letters, numbers, spaces, periods, hyphens, or underscores when naming question sets."
     return None
 
 

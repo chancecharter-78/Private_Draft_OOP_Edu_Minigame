@@ -1,6 +1,11 @@
 
 from Model import question_set
 
+try:
+    from Model import logic_rules
+except Exception:  # engine unavailable: use the Python rules below
+    logic_rules = None
+
 
 MAX_SERVER_NAME_LENGTH = 60
 
@@ -22,6 +27,26 @@ def next_server_name(existing_names):
     return f"Server {server_number}"
 
 
+def _is_due(card, due, now):
+    if logic_rules is not None:
+        try:
+            return logic_rules.is_due(card, due, now)
+        except logic_rules.LogicEngineError:
+            pass
+    return card is None or due <= now
+
+
+def _is_online(question_set_count, due_questions):
+    if logic_rules is not None:
+        try:
+            return logic_rules.is_online(
+                question_set_count, len(due_questions)
+            )
+        except logic_rules.LogicEngineError:
+            pass
+    return question_set_count > 0 and not due_questions
+
+
 def find_due_questions(question_sets, review_cards, now):
     due_questions = []
     seen_questions = set()
@@ -36,7 +61,7 @@ def find_due_questions(question_sets, review_cards, now):
             seen_questions.add(question_identity)
             card = review_cards.get(question_identity)
             due = question_set.get_card_due(card, now) if card else None
-            if card is None or due <= now:
+            if _is_due(card, due, now):
                 due_questions.append(question_identity)
     return due_questions
 
@@ -50,5 +75,5 @@ def build_server_status(server_id, name, is_default, question_sets, review_cards
         "is_default": is_default,
         "question_set_count": question_set_count,
         "due_question_count": len(due_questions),
-        "online": question_set_count > 0 and not due_questions,
+        "online": _is_online(question_set_count, due_questions),
     }

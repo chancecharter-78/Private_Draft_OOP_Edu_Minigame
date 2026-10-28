@@ -96,46 +96,39 @@ def delete_question_set_on_click(username, set_id):
 
 
 def prepare_editor_state(username, selected_id, names_by_id):
-    if "question_editor_pending_target" in st.session_state:
-        st.session_state.question_editor_target = st.session_state.pop(
-            "question_editor_pending_target"
-        )
-    if "question_editor_target" not in st.session_state:
-        st.session_state.question_editor_target = selected_id
-    if st.session_state.question_editor_target not in (
-        None,
-        *names_by_id.keys(),
-    ):
-        st.session_state.question_editor_target = selected_id
-    if "question_editor_loaded_id" not in st.session_state:
-        st.session_state.question_editor_loaded_id = selected_id
-        st.session_state.question_editor_csv = get_question_set_csv(
-            username,
-            selected_id,
-        )
-        st.session_state.question_editor_name = names_by_id[selected_id]
+    sync_editor_to_target(username, selected_id, names_by_id)
 
 
-def load_uploaded_csv(uploaded_file):
+def prepare_new_question_set_state():
+    if st.session_state.pop("new_question_set_reset_pending", False):
+        st.session_state.new_question_set_name = ""
+        st.session_state.new_question_set_csv = question_set.get_csv_template()
+    st.session_state.setdefault(
+        "new_question_set_csv",
+        question_set.get_csv_template(),
+    )
+    st.session_state.setdefault("new_question_set_name", "")
+    st.session_state.setdefault("new_question_set_notice", "")
+    st.session_state.setdefault("new_question_set_notice_type", "")
+
+
+def load_new_question_set_csv(uploaded_file):
     try:
-        st.session_state.question_editor_csv = (
+        st.session_state.new_question_set_csv = (
             uploaded_file.getvalue().decode("utf-8-sig")
         )
     except UnicodeDecodeError:
         return "The CSV file must be UTF-8 encoded."
-    st.session_state.question_editor_name = Path(uploaded_file.name).stem
-    st.session_state.question_editor_target = None
-    st.session_state.question_editor_loaded_id = None
-    st.session_state.question_editor_notice = (
-        "CSV loaded. Review or edit it in the Paste or edit CSV tab, "
-        "then save it."
+    st.session_state.new_question_set_name = Path(uploaded_file.name).stem
+    st.session_state.new_question_set_notice = (
+        "CSV loaded. Review or edit it below, then save it as a new question set."
     )
-    st.session_state.question_editor_notice_type = "info"
+    st.session_state.new_question_set_notice_type = "info"
     return None
 
 
 def sync_editor_to_target(username, target_id, names_by_id):
-    if st.session_state.question_editor_loaded_id == target_id:
+    if st.session_state.get("question_editor_loaded_id") == target_id:
         return
     if target_id is None:
         st.session_state.question_editor_csv = question_set.get_csv_template()
@@ -188,3 +181,24 @@ def save_editor(username, target_id):
         return "saved", ""
     except ValueError as error:
         return "error", str(error)
+
+
+def save_new_question_set(username):
+    try:
+        saved_id, message = save_question_set(
+            username,
+            st.session_state.new_question_set_name,
+            st.session_state.new_question_set_csv,
+        )
+    except ValueError as error:
+        return "error", str(error)
+
+    if saved_id is None:
+        return "error", message
+
+    st.session_state.new_question_set_notice = (
+        "Question set saved. Assign it to a server to use it."
+    )
+    st.session_state.new_question_set_notice_type = "success"
+    st.session_state.new_question_set_reset_pending = True
+    return "saved", ""

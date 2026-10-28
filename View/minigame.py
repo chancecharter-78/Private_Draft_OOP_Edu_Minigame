@@ -241,7 +241,7 @@ def render_live_bit_fit():
 
 
 def render_bit_fit_page():
-    st.write("# 💻 Bit Fit Binary Matching Game")
+    st.write("# 💻 Bit Fit Minigame")
     st.caption(
         "Decode the characters one by one."
     )
@@ -288,44 +288,52 @@ def render_bit_fit_page():
 
 
 
-TERMINAL_MODE = "pills"
+TERMINAL_MODE = "buttons"
 
 TERMINAL_CSS = """
 <style>
-[class*="st-key-hacking_terminal"] button[kind="tertiary"] {
-    border: 0;
-    background: transparent;
-    box-shadow: none;
-    color: #d5e2e8;
-    font-family: monospace;
-    font-size: 0.76rem;
-    line-height: 0.82rem;
-    padding: 0;
-    min-height: 0.82rem;
-    height: 0.82rem;
-    margin: 0;
-}
-[class*="st-key-hacking_terminal"] button[kind="tertiary"]:hover {
-    color: #7dd3fc;
-    background: transparent;
-    text-decoration: underline;
+[class*="st-key-hacking_terminal"] {
+    border: 1px solid rgba(148, 163, 184, 0.45);
+    border-radius: 0.8rem;
+    background: rgba(15, 23, 42, 0.7);
+    padding: 0.75rem;
+    max-height: 18rem;
+    overflow: auto;
+    box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.12);
 }
 [class*="st-key-hacking_terminal"] [data-testid="stHorizontalBlock"] {
+    display: flex !important;
     flex-wrap: wrap !important;
     justify-content: flex-start !important;
-    gap: 0 !important;
+    align-items: center;
+    gap: 0.2rem 0.35rem !important;
     min-height: 0.82rem;
     margin: 0;
 }
 [class*="st-key-hacking_terminal"] [data-testid="stHorizontalBlock"] > div {
     padding: 0;
+    margin: 0;
     flex: 0 0 auto;
 }
-[class*="st-key-hack_pills"] button {
+[class*="st-key-hacking_terminal"] button[kind="tertiary"] {
+    border: 1px solid rgba(125, 211, 252, 0.25);
+    background: rgba(148, 163, 184, 0.08);
+    border-radius: 0.35rem;
+    box-shadow: none;
+    color: #d5e2e8;
     font-family: monospace;
     font-size: 0.76rem;
-    padding: 0.1rem 0.3rem;
-    min-height: 0;
+    line-height: 0.82rem;
+    padding: 0.18rem 0.38rem;
+    min-height: 0.82rem;
+    height: auto;
+    margin: 0;
+}
+[class*="st-key-hacking_terminal"] button[kind="tertiary"]:hover {
+    color: #7dd3fc;
+    background: rgba(125, 211, 252, 0.12);
+    border-color: rgba(125, 211, 252, 0.45);
+    text-decoration: none;
 }
 </style>
 """
