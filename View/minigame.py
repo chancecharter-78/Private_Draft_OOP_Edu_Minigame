@@ -234,7 +234,7 @@ def draw_cipher_columns():
 @st.fragment(run_every=bit_fit.BIT_FIT_REFRESH_SECONDS)
 def render_live_bit_fit():
     st.metric(
-        "Session Time",
+        "",
         timer.format_time(controller.get_elapsed("bit_fit")),
     )
     draw_cipher_columns()
@@ -269,17 +269,12 @@ def render_bit_fit_page():
     question = st.session_state.bf_question
     st.info(question["question"])
     st.caption(
-        f"Subject: {question['game']} | {bit_fit.CHOICES_PER_COLUMN} choices per active "
-        "column. Letter, number, and punctuation columns cycle within their "
-        "respective character types; spaces are pre-filled."
+        f"Subject: {question['game']}"
     )
 
-    st.markdown("### 🔎 Letter Cipher Columns:")
     if not st.session_state.bf_over:
-        st.button("⚡ Decode Word", on_click=controller.submit_round, width="stretch")
         render_live_bit_fit()
-        st.markdown("---")
-        st.markdown("### 🔀 Cycle the Letter in Each Active Column:")
+        st.button("⚡ Decode Word", on_click=controller.submit_round, width="stretch")
         if st.session_state.bf_msg:
             st.success(st.session_state.bf_msg)
     else:
