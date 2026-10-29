@@ -84,16 +84,18 @@ def compute_game_base_score(
             return 300
         if reveal_count <= 2 and elapsed_seconds < 20:
             return 200
-        return 100
+        if reveal_count == total_letters and elapsed_seconds < 25:
+            return 100
 
     if game_name == "hacking":
-        if elapsed_seconds < 5:
+        if elapsed_seconds < 17:
             return 500
-        if elapsed_seconds < 7:
+        if elapsed_seconds < 24:
             return 300
-        if elapsed_seconds < 9:
+        if elapsed_seconds < 38:
             return 200
-        return 100
+        if elapsed_seconds < 45:
+            return 100
 
     if game_name == "slider":
         correct_count = int(correct_questions or 0)
@@ -103,6 +105,7 @@ def compute_game_base_score(
             return 300
         if correct_count <= 4 and elapsed_seconds <= 11:
             return 200
-        return 100
+        if correct_count <= 4 and elapsed_seconds <= 15:
+            return 100
 
-    return 100
+    return 0

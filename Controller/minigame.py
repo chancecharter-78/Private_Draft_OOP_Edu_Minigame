@@ -4,7 +4,7 @@ import time
 
 import streamlit as st
 
-from Controller import player, servers
+from Controller import player, question_cache, servers
 from Model import (
     bit_fit,
     combo_system,
@@ -735,7 +735,11 @@ def hacking_ensure_terminal_segments():
 
 def init_hacking():
     previous_questions = st.session_state.get("hack_seen_questions", [])
-    question = _draw_question(previous_questions)
+    question = question_cache.draw_question(
+        player.get_save_data(),
+        previous_questions,
+        server_id=st.session_state.get("active_server_id"),
+    )
     previous_questions.append(question["question"])
     st.session_state.hack_seen_questions = previous_questions
 

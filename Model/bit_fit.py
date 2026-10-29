@@ -153,10 +153,12 @@ def decode_player_answer(player_letters, active_columns, answer_layout, column_c
 
 
 def calculate_points(round_number, revealed_count, letter_count):
+    if letter_count > 0 and revealed_count == letter_count:
+        return 0
     if revealed_count == 0:
         return 300 * round_number
-    if revealed_count == letter_count:
-        return 50 * round_number
     if revealed_count <= 3:
         return 250 * round_number
-    return 100 * round_number
+    if revealed_count == letter_count - 1:
+        return 100 * round_number
+    return 0

@@ -13,7 +13,7 @@ Flashcard review works for long-term retention, but its plain input-output inter
 - **Custom question sets** – upload CSV files (validated on upload) with one correct answer and three wrong answers per question.
 - **Three minigames**
   - **Slider** – stop a bouncing marker in the zone of the correct answer (2–6 rounds of 5 sliders; 3 wins needed per round).
-  - **Bit Fit** – assemble the answer from per-column character choices while a hint row slowly reveals letters (5–8 rounds).
+  - **Bit Fit** – assemble the answer from per-column character choices while a hint row slowly reveals letters; answer within five seconds after the final letter appears (5–8 rounds).
   - **Terminal Hacking** – find the correct word hidden in a block of noise; wrong guesses return per-letter feedback (4–6 rounds).
 - **Servers** – group question sets into servers. A server is **Idle** (no sets), **Online** (nothing due) or **Offline** (questions due). Repair an offline server by answering its due questions.
 - **FSRS scheduling** – each answer becomes a 4-level rating (Again/Hard/Good/Easy) from correctness and speed, capped by the player's own self-rating.

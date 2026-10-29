@@ -288,7 +288,7 @@ def render_bit_fit_page():
 
 
 
-TERMINAL_MODE = "buttons"
+TERMINAL_MODE = "pills"
 
 TERMINAL_CSS = """
 <style>
@@ -335,6 +335,36 @@ TERMINAL_CSS = """
     border-color: rgba(125, 211, 252, 0.45);
     text-decoration: none;
 }
+[class*="st-key-hack_pills"] {
+    border: 1px solid rgba(148, 163, 184, 0.45);
+    border-radius: 0.8rem;
+    background: rgba(15, 23, 42, 0.7);
+    padding: 0.75rem;
+    max-height: 18rem;
+    overflow: auto;
+    box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.12);
+}
+[class*="st-key-hack_pills"] [data-testid="stButtonGroup"] {
+    gap: 0.1rem 0.3rem !important;
+}
+[class*="st-key-hack_pills"] button {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0.05rem 0.15rem !important;
+    min-height: 0 !important;
+    height: auto !important;
+    color: #7dd3fc;
+}
+[class*="st-key-hack_pills"] button * {
+    font-family: monospace !important;
+    font-size: 0.8rem !important;
+    color: inherit !important;
+}
+[class*="st-key-hack_pills"] button:hover {
+    color: #e0f2fe;
+    text-decoration: underline;
+}
 </style>
 """
 
@@ -351,7 +381,7 @@ def render_terminal_buttons():
             st.session_state.hack_terminal_segments
         ):
             st.button(
-                text,
+                hacking.escape_label(text),
                 key=f"hack_segment_{round_id}_{segment_index}",
                 type="tertiary",
                 on_click=controller.pick_word if is_word else controller.pick_noise,
@@ -442,14 +472,15 @@ def render_hacking_game(save_data):
     if st.session_state.get("game_result_ready", False):
         render_game_result("Hacking", save_data)
         return
-    if not render_start_gate("Hacking", "hacking"):
+    if not st.session_state.get("game_start_active", False):
+        render_start_gate("Hacking", "hacking")
         return
 
     render_hacking_status_bar(save_data)
 
     main_col, log_col = st.columns([1.2, 1])
     with main_col:
-        st.markdown("#### ▒ Data Noise Block")
+        st.markdown("#### ▒ Data Noise Terminal Line")
         render_terminal_dump()
     with log_col:
         render_hacking_query_panel()
