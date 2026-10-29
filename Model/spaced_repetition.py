@@ -10,7 +10,24 @@ try:
 except Exception:  # engine unavailable: use the Python rules below
     logic_rules = None
 
-def map_performance_to_rating(won: bool, time_taken: float, target_seconds: float) -> int:
+def map_performance_to_rating(
+    won: bool,
+    time_taken: float,
+    target_seconds: float,
+    *,
+    score: int | None = None,
+) -> int:
+    if score is not None:
+        if not won:
+            return 1
+        if score >= 500:
+            return 4
+        if score >= 300:
+            return 3
+        if score >= 100:
+            return 2
+        return 1
+
     if logic_rules is not None:
         try:
             return logic_rules.performance_rating(

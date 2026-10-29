@@ -210,11 +210,19 @@ def advance_start_gate(timer_key):
     return phase, countdown, announce_repair
 
 
-def record_question_result(question, chosen_answer, won, elapsed_seconds, target_seconds):
+def record_question_result(
+    question,
+    chosen_answer,
+    won,
+    elapsed_seconds,
+    target_seconds,
+    score=None,
+):
     automated_rating = spaced_repetition.map_performance_to_rating(
         won,
         elapsed_seconds,
         target_seconds,
+        score=score,
     )
     st.session_state.setdefault("review_history", []).append({
         "question": question["question"],
@@ -831,12 +839,17 @@ def pick_word(guess=None):
     st.session_state.hack_win = True
     st.session_state.hack_over = True
     elapsed = stop_timer("hacking")
+    base_points = combo_system.compute_game_base_score(
+        "Hacking",
+        elapsed_seconds=elapsed,
+    )
     record_question_result(
         st.session_state.hack_question,
         guess,
         True,
         elapsed,
         game_flow.QUESTION_TARGET_SECONDS["Hacking"],
+        score=base_points,
     )
     reward = apply_win("Hacking", elapsed_seconds=elapsed)
     message = (

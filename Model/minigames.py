@@ -39,10 +39,10 @@ class Minigame(ABC):
     def clear_range(self) -> tuple[int, int]:
         return game_flow.GAME_CLEAR_RANGES[self._name]
 
-    def rate(self, won: bool, time_taken: float) -> int:
+    def rate(self, won: bool, time_taken: float, *, score: int | None = None) -> int:
         """Automatic 1-4 rating using this game's target time."""
         return spaced_repetition.map_performance_to_rating(
-            won, time_taken, self.target_seconds
+            won, time_taken, self.target_seconds, score=score
         )
 
     @abstractmethod
@@ -93,6 +93,15 @@ class BitFit(Minigame):
 class Hacking(Minigame):
     def __init__(self):
         super().__init__("Hacking")
+
+    def rate(self, won: bool, time_taken: float, *, score: int | None = None) -> int:
+        """Use the score tier for Hacking so its review signal matches gameplay."""
+        return spaced_repetition.map_performance_to_rating(
+            won,
+            time_taken,
+            self.target_seconds,
+            score=score,
+        )
 
     def start_round(self, question, round_number=1):
         words = [question["correct_answer"], *question["wrong_answers"]]
